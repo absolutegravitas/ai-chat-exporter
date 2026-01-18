@@ -1,14 +1,12 @@
 /**
  * Gemini Chat Exporter - Gemini content script
  * Exports Gemini chat conversations to Markdown with LaTeX preservation
+ * Version 4.0.0 - DOM-based extraction (no clipboard dependency)
  */
 
 (function() {
   'use strict';
 
-  // ============================================================================
-  // CONSTANTS
-  // ============================================================================
   const CONFIG = {
     BUTTON_ID: 'gemini-export-btn',
     DROPDOWN_ID: 'gemini-export-dropdown',
@@ -21,20 +19,18 @@
       CHAT_CONTAINER: '[data-test-id="chat-history-container"]',
       CONVERSATION_TURN: 'div.conversation-container',
       USER_QUERY: 'user-query',
+      USER_QUERY_TEXT: '.query-text .query-text-line',
       MODEL_RESPONSE: 'model-response',
-      COPY_BUTTON: 'button[data-test-id="copy-button"]',
+      MODEL_RESPONSE_CONTENT: 'message-content .markdown',
       CONVERSATION_TITLE: '.conversation-title'
     },
     
     TIMING: {
       SCROLL_DELAY: 2000,
-      CLIPBOARD_CLEAR_DELAY: 200,
-      CLIPBOARD_READ_DELAY: 300,
-      MOUSEOVER_DELAY: 500,
       POPUP_DURATION: 900,
+      NOTIFICATION_CLEANUP_DELAY: 1000,
       MAX_SCROLL_ATTEMPTS: 60,
-      MAX_STABLE_SCROLLS: 4,
-      MAX_CLIPBOARD_ATTEMPTS: 10
+      MAX_STABLE_SCROLLS: 4
     },
     
     STYLES: {
@@ -46,43 +42,59 @@
       LIGHT_BG: '#fff',
       LIGHT_TEXT: '#222',
       LIGHT_BORDER: '#ccc'
-    }
+    },
+    
+    MATH_BLOCK_SELECTOR: '.math-block[data-math]',
+    MATH_INLINE_SELECTOR: '.math-inline[data-math]',
+    
+    DEFAULT_FILENAME: 'gemini_chat_export',
+    MARKDOWN_HEADER: '# Gemini Chat Export',
+    EXPORT_TIMESTAMP_FORMAT: 'Exported on:'
   };
 
   // ============================================================================
-  // UTILITY FUNCTIONS
+  // UTILITY SERVICES
   // ============================================================================
-  const Utils = {
-    sleep(ms) {
-      return new Promise(resolve => setTimeout(resolve, ms));
-    },
+  
+  class DateUtils {
+    static getDateString() {
+      const d = new Date();
+      const pad = n => n.toString().padStart(2, '0');
+      return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}_${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
+    }
 
-    isDarkMode() {
-      return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
-    },
+    static getLocaleString() {
+      return new Date().toLocaleString();
+    }
+  }
 
-    sanitizeFilename(text) {
+  class StringUtils {
+    static sanitizeFilename(text) {
       return text
         .replace(/[\\/:*?"<>|.]/g, '')
         .replace(/\s+/g, '_')
         .replace(/^_+|_+$/g, '');
-    },
+    }
 
-    getDateString() {
-      const d = new Date();
-      const pad = n => n.toString().padStart(2, '0');
-      return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}_${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
-    },
-
-    removeCitations(text) {
+    static removeCitations(text) {
       return text
         .replace(/\[cite_start\]/g, '')
         .replace(/\[cite:[\d,\s]+\]/g, '')
         .replace(/\n{3,}/g, '\n\n')
         .trim();
-    },
+    }
+  }
 
-    createNotification(message) {
+  class DOMUtils {
+    static sleep(ms) {
+      return new Promise(resolve => setTimeout(resolve, ms));
+    }
+
+    static isDarkMode() {
+      return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+    }
+
+    static createNotification(message) {
       const popup = document.createElement('div');
       Object.assign(popup.style, {
         position: 'fixed',
@@ -103,7 +115,327 @@
       setTimeout(() => popup.remove(), CONFIG.TIMING.POPUP_DURATION);
       return popup;
     }
-  };
+  }
+
+  // ============================================================================
+  // FILENAME SERVICE
+  // ============================================================================
+  
+  class FilenameService {
+    static getConversationTitle() {
+      const titleCard = document.querySelector(CONFIG.SELECTORS.CONVERSATION_TITLE);
+      return titleCard ? titleCard.textContent.trim() : '';
+    }
+
+    static generate(customFilename, conversationTitle) {
+      // Priority: custom > conversation title > page title > timestamp
+      if (customFilename && customFilename.trim()) {
+        const base = this._sanitizeCustomFilename(customFilename);
+        return base || `${CONFIG.DEFAULT_FILENAME}_${DateUtils.getDateString()}`;
+      }
+
+      // Try conversation title first
+      if (conversationTitle) {
+        const safeTitle = StringUtils.sanitizeFilename(conversationTitle);
+        if (safeTitle) return `${safeTitle}_${DateUtils.getDateString()}`;
+      }
+
+      // Fallback to page title
+      const pageTitle = document.querySelector('title')?.textContent.trim();
+      if (pageTitle) {
+        const safeTitle = StringUtils.sanitizeFilename(pageTitle);
+        if (safeTitle) return `${safeTitle}_${DateUtils.getDateString()}`;
+      }
+
+      // Final fallback
+      return `${CONFIG.DEFAULT_FILENAME}_${DateUtils.getDateString()}`;
+    }
+
+    static _sanitizeCustomFilename(filename) {
+      let base = filename.trim().replace(/\.[^/.]+$/, '');
+      return base.replace(/[^a-zA-Z0-9_\-]/g, '_');
+    }
+  }
+
+  // ============================================================================
+  // SCROLL SERVICE
+  // ============================================================================
+  
+  class ScrollService {
+    static async loadAllMessages() {
+      const scrollContainer = document.querySelector(CONFIG.SELECTORS.CHAT_CONTAINER);
+      if (!scrollContainer) {
+        throw new Error('Could not find chat history container. Are you on a Gemini chat page?');
+      }
+
+      let stableScrolls = 0;
+      let scrollAttempts = 0;
+      let lastScrollTop = null;
+
+      while (stableScrolls < CONFIG.TIMING.MAX_STABLE_SCROLLS && 
+             scrollAttempts < CONFIG.TIMING.MAX_SCROLL_ATTEMPTS) {
+        const currentTurnCount = document.querySelectorAll(CONFIG.SELECTORS.CONVERSATION_TURN).length;
+        scrollContainer.scrollTop = 0;
+        await DOMUtils.sleep(CONFIG.TIMING.SCROLL_DELAY);
+        
+        const scrollTop = scrollContainer.scrollTop;
+        const newTurnCount = document.querySelectorAll(CONFIG.SELECTORS.CONVERSATION_TURN).length;
+        
+        if (newTurnCount === currentTurnCount && (lastScrollTop === scrollTop || scrollTop === 0)) {
+          stableScrolls++;
+        } else {
+          stableScrolls = 0;
+        }
+        
+        lastScrollTop = scrollTop;
+        scrollAttempts++;
+      }
+    }
+  }
+
+  // ============================================================================
+  // FILE EXPORT SERVICE
+  // ============================================================================
+  
+  class FileExportService {
+    static downloadMarkdown(markdown, filenameBase) {
+      const blob = new Blob([markdown], { type: 'text/markdown' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${filenameBase}.md`;
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(() => {
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      }, CONFIG.TIMING.NOTIFICATION_CLEANUP_DELAY);
+    }
+
+    static async exportToClipboard(markdown) {
+      await navigator.clipboard.writeText(markdown);
+      alert('Conversation copied to clipboard!');
+    }
+  }
+
+  // ============================================================================
+  // MARKDOWN CONVERTER SERVICE
+  // ============================================================================
+  
+  class MarkdownConverter {
+    constructor() {
+      this.turndownService = this._createTurndownService();
+    }
+
+    _createTurndownService() {
+      if (typeof window.TurndownService !== 'function') {
+        return null;
+      }
+
+      const service = new window.TurndownService({
+        codeBlockStyle: 'fenced',
+        emDelimiter: '*',
+        strongDelimiter: '**',
+        headingStyle: 'atx',
+        hr: '---',
+        bulletListMarker: '-',
+        codeBlockFence: '```'
+      });
+
+      service.addRule('mathBlock', {
+        filter: node => node.nodeType === 1 && node.matches?.(CONFIG.MATH_BLOCK_SELECTOR),
+        replacement: (content, node) => {
+          const latex = node.getAttribute('data-math') || '';
+          return `$$${latex}$$\n\n`;
+        }
+      });
+
+      service.addRule('mathInline', {
+        filter: node => node.nodeType === 1 && node.matches?.(CONFIG.MATH_INLINE_SELECTOR),
+        replacement: (content, node) => {
+          const latex = node.getAttribute('data-math') || '';
+          return `$${latex}$`;
+        }
+      });
+
+      service.addRule('table', {
+        filter: 'table',
+        replacement: (content, node) => {
+          const rows = Array.from(node.querySelectorAll('tr'));
+          if (!rows.length) return '';
+
+          const getCells = row => {
+            return Array.from(row.querySelectorAll('th, td')).map(cell => {
+              const cellContent = service.turndown(cell.innerHTML);
+              return cellContent.replace(/\n+/g, ' ').replace(/\|/g, '\\|').trim();
+            });
+          };
+
+          const headerRow = rows[0];
+          const headers = getCells(headerRow);
+          const separator = headers.map(() => '---');
+          const bodyRows = rows.slice(1).map(getCells);
+
+          const lines = [
+            `| ${headers.join(' | ')} |`,
+            `| ${separator.join(' | ')} |`,
+            ...bodyRows.map(cells => `| ${cells.join(' | ')} |`)
+          ];
+
+          return `\n${lines.join('\n')}\n\n`;
+        }
+      });
+
+      service.addRule('lineBreak', {
+        filter: 'br',
+        replacement: () => '  \n'
+      });
+
+      return service;
+    }
+
+    extractUserQuery(userQueryElement) {
+      if (!userQueryElement) return '';
+      
+      const queryLines = userQueryElement.querySelectorAll(CONFIG.SELECTORS.USER_QUERY_TEXT);
+      if (queryLines.length === 0) {
+        const queryText = userQueryElement.querySelector('.query-text, .user-query-container');
+        return queryText ? queryText.textContent.trim() : '';
+      }
+      
+      return Array.from(queryLines)
+        .map(line => line.textContent.trim())
+        .filter(text => text.length > 0)
+        .join('\n');
+    }
+
+    extractModelResponse(modelResponseElement) {
+      if (!modelResponseElement) return '';
+      
+      const markdownContainer = modelResponseElement.querySelector(CONFIG.SELECTORS.MODEL_RESPONSE_CONTENT);
+      if (!markdownContainer) return '';
+
+      let result = '';
+      if (this.turndownService) {
+        result = this.turndownService.turndown(markdownContainer.innerHTML);
+      } else {
+        result = FallbackConverter.convertToMarkdown(markdownContainer);
+      }
+      
+      // Remove Gemini citation markers
+      return StringUtils.removeCitations(result);
+    }
+  }
+
+  // ============================================================================
+  // FALLBACK CONVERTER (when Turndown unavailable)
+  // ============================================================================
+  
+  class FallbackConverter {
+    static convertToMarkdown(container) {
+      return Array.from(container.childNodes).map(node => this._blockText(node)).join('');
+    }
+
+    static _inlineText(node) {
+      if (!node) return '';
+      if (node.nodeType === Node.TEXT_NODE) return node.textContent || '';
+
+      if (node.nodeType !== Node.ELEMENT_NODE) return '';
+
+      const el = node;
+      if (el.matches?.(CONFIG.MATH_INLINE_SELECTOR)) {
+        const latex = el.getAttribute('data-math') || '';
+        return `$${latex}$`;
+      }
+
+      const tag = el.tagName.toLowerCase();
+      if (tag === 'br') return '\n';
+      if (tag === 'b' || tag === 'strong') {
+        return `**${Array.from(el.childNodes).map(n => this._inlineText(n)).join('')}**`;
+      }
+      if (tag === 'i' || tag === 'em') {
+        return `*${Array.from(el.childNodes).map(n => this._inlineText(n)).join('')}*`;
+      }
+      if (tag === 'code') {
+        return `\`${el.textContent || ''}\``;
+      }
+
+      return Array.from(el.childNodes).map(n => this._inlineText(n)).join('');
+    }
+
+    static _blockText(el) {
+      if (!el) return '';
+
+      if (el.nodeType === Node.TEXT_NODE) {
+        return (el.textContent || '').trim();
+      }
+
+      if (el.nodeType !== Node.ELEMENT_NODE) return '';
+
+      const tag = el.tagName.toLowerCase();
+
+      if (el.matches?.(CONFIG.MATH_BLOCK_SELECTOR)) {
+        const latex = el.getAttribute('data-math') || '';
+        return `$$${latex}$$\n\n`;
+      }
+
+      const handlers = {
+        h1: () => `# ${this._inlineText(el)}\n\n`,
+        h2: () => `## ${this._inlineText(el)}\n\n`,
+        h3: () => `### ${this._inlineText(el)}\n\n`,
+        h4: () => `#### ${this._inlineText(el)}\n\n`,
+        h5: () => `##### ${this._inlineText(el)}\n\n`,
+        h6: () => `###### ${this._inlineText(el)}\n\n`,
+        p: () => `${this._inlineText(el)}\n\n`,
+        hr: () => `---\n\n`,
+        blockquote: () => this._convertBlockquote(el),
+        pre: () => `\`\`\`\n${el.textContent || ''}\n\`\`\`\n\n`,
+        ul: () => this._convertList(el, false),
+        ol: () => this._convertList(el, true),
+        table: () => this._convertTable(el)
+      };
+
+      if (handlers[tag]) {
+        return handlers[tag]();
+      }
+
+      // Default: process child nodes
+      return Array.from(el.childNodes).map(n => this._blockText(n)).join('');
+    }
+
+    static _convertBlockquote(el) {
+      const lines = Array.from(el.childNodes).map(n => this._blockText(n)).join('').trim().split('\n');
+      return lines.map(line => line ? `> ${line}` : '>').join('\n') + '\n\n';
+    }
+
+    static _convertList(el, isOrdered) {
+      const items = Array.from(el.querySelectorAll(':scope > li'));
+      const converted = items.map((li, i) => {
+        const marker = isOrdered ? `${i + 1}.` : '-';
+        return `${marker} ${this._inlineText(li).trim()}`;
+      }).join('\n');
+      return `${converted}\n\n`;
+    }
+
+    static _convertTable(el) {
+      const rows = Array.from(el.querySelectorAll('tr'));
+      if (!rows.length) return '';
+      
+      const getCells = row => Array.from(row.querySelectorAll('th,td'))
+        .map(cell => this._inlineText(cell).replace(/\n/g, ' ').trim());
+      
+      const header = getCells(rows[0]);
+      const separator = header.map(() => '---');
+      const body = rows.slice(1).map(getCells);
+      
+      const lines = [
+        `| ${header.join(' | ')} |`,
+        `| ${separator.join(' | ')} |`,
+        ...body.map(r => `| ${r.join(' | ')} |`)
+      ];
+      return `${lines.join('\n')}\n\n`;
+    }
+  }
 
   // ============================================================================
   // CHECKBOX MANAGER
@@ -213,7 +545,7 @@
     }
 
     static createDropdownHTML() {
-      const isDark = Utils.isDarkMode();
+      const isDark = DOMUtils.isDarkMode();
       const inputStyles = this.getInputStyles(isDark);
       
       return `
@@ -284,7 +616,7 @@
       const dropdown = document.createElement('div');
       dropdown.id = CONFIG.DROPDOWN_ID;
       
-      const isDark = Utils.isDarkMode();
+      const isDark = DOMUtils.isDarkMode();
       Object.assign(dropdown.style, {
         position: 'fixed',
         top: '124px',
@@ -304,141 +636,171 @@
     }
   }
 
+  function tableToMarkdown(table, service) {
+    const rows = Array.from(table.querySelectorAll('tr'));
+    if (!rows.length) return '';
+
+    const toCells = row => Array.from(row.querySelectorAll('th,td'))
+      .map(cell => service.turndown(cell.innerHTML).replace(/\n+/g, ' ').trim());
+
+    const header = toCells(rows[0]);
+    const separator = header.map(() => '---');
+    const body = rows.slice(1).map(toCells);
+
+    const lines = [
+      `| ${header.join(' | ')} |`,
+      `| ${separator.join(' | ')} |`,
+      ...body.map(r => `| ${r.join(' | ')} |`)
+    ];
+
+    return `${lines.join('\n')}\n\n`;
+  }
+
+  function inlineText(node) {
+    if (!node) return '';
+    if (node.nodeType === Node.TEXT_NODE) return node.textContent || '';
+
+    if (node.nodeType !== Node.ELEMENT_NODE) return '';
+
+    const el = node;
+    if (el.matches(CONFIG.MATH_INLINE_SELECTOR)) {
+      const latex = el.getAttribute('data-math') || '';
+      return `$${latex}$`;
+    }
+
+    const tag = el.tagName.toLowerCase();
+    if (tag === 'br') return '\n';
+    if (tag === 'b' || tag === 'strong') {
+      return `**${Array.from(el.childNodes).map(inlineText).join('')}**`;
+    }
+    if (tag === 'i' || tag === 'em') {
+      return `*${Array.from(el.childNodes).map(inlineText).join('')}*`;
+    }
+    if (tag === 'code') {
+      return `\`${el.textContent || ''}\``;
+    }
+
+    return Array.from(el.childNodes).map(inlineText).join('');
+  }
+
+  function blockText(el) {
+    if (!el) return '';
+
+    if (el.nodeType === Node.TEXT_NODE) {
+      return (el.textContent || '').trim();
+    }
+
+    if (el.nodeType !== Node.ELEMENT_NODE) return '';
+
+    const tag = el.tagName.toLowerCase();
+
+    if (el.matches(CONFIG.MATH_BLOCK_SELECTOR)) {
+      const latex = el.getAttribute('data-math') || '';
+      return `$$${latex}$$\n\n`;
+    }
+
+    switch (tag) {
+      case 'h1': return `# ${inlineText(el)}\n\n`;
+      case 'h2': return `## ${inlineText(el)}\n\n`;
+      case 'h3': return `### ${inlineText(el)}\n\n`;
+      case 'h4': return `#### ${inlineText(el)}\n\n`;
+      case 'h5': return `##### ${inlineText(el)}\n\n`;
+      case 'h6': return `###### ${inlineText(el)}\n\n`;
+      case 'p': return `${inlineText(el)}\n\n`;
+      case 'hr': return `---\n\n`;
+      case 'blockquote': {
+        const lines = Array.from(el.childNodes).map(blockText).join('').trim().split('\n');
+        return lines.map(line => line ? `> ${line}` : '>').join('\n') + '\n\n';
+      }
+      case 'pre': {
+        const code = el.textContent || '';
+        return `\
+\
+\
+${code}\n\
+\
+\n`;
+      }
+      case 'ul': {
+        const items = Array.from(el.querySelectorAll(':scope > li'))
+          .map(li => `- ${inlineText(li).trim()}`)
+          .join('\n');
+        return `${items}\n\n`;
+      }
+      case 'ol': {
+        const items = Array.from(el.querySelectorAll(':scope > li'))
+          .map((li, i) => `${i + 1}. ${inlineText(li).trim()}`)
+          .join('\n');
+        return `${items}\n\n`;
+      }
+      case 'table': {
+        const rows = Array.from(el.querySelectorAll('tr'));
+        if (!rows.length) return '';
+        const cells = row => Array.from(row.querySelectorAll('th,td'))
+          .map(cell => inlineText(cell).replace(/\n/g, ' ').trim());
+        const header = cells(rows[0]);
+        const sep = header.map(() => '---');
+        const body = rows.slice(1).map(r => cells(r));
+        const lines = [
+          `| ${header.join(' | ')} |`,
+          `| ${sep.join(' | ')} |`,
+          ...body.map(r => `| ${r.join(' | ')} |`)
+        ];
+        return `${lines.join('\n')}\n\n`;
+      }
+      case 'div':
+      case 'section':
+      case 'article':
+      default: {
+        return Array.from(el.childNodes).map(blockText).join('');
+      }
+    }
+  }
+
   // ============================================================================
   // EXPORT SERVICE
   // ============================================================================
   class ExportService {
     constructor(checkboxManager) {
       this.checkboxManager = checkboxManager;
+      this.markdownConverter = new MarkdownConverter();
     }
 
-    async scrollToLoadAll() {
-      const scrollContainer = document.querySelector(CONFIG.SELECTORS.CHAT_CONTAINER);
-      if (!scrollContainer) {
-        throw new Error('Could not find chat history container. Are you on a Gemini chat page?');
-      }
-
-      let stableScrolls = 0;
-      let scrollAttempts = 0;
-      let lastScrollTop = null;
-
-      while (stableScrolls < CONFIG.TIMING.MAX_STABLE_SCROLLS && 
-             scrollAttempts < CONFIG.TIMING.MAX_SCROLL_ATTEMPTS) {
-        const currentTurnCount = document.querySelectorAll(CONFIG.SELECTORS.CONVERSATION_TURN).length;
-        scrollContainer.scrollTop = 0;
-        await Utils.sleep(CONFIG.TIMING.SCROLL_DELAY);
-        
-        const scrollTop = scrollContainer.scrollTop;
-        const newTurnCount = document.querySelectorAll(CONFIG.SELECTORS.CONVERSATION_TURN).length;
-        
-        if (newTurnCount === currentTurnCount && (lastScrollTop === scrollTop || scrollTop === 0)) {
-          stableScrolls++;
-        } else {
-          stableScrolls = 0;
-        }
-        
-        lastScrollTop = scrollTop;
-        scrollAttempts++;
-      }
-    }
-
-    async copyModelResponse(turn, copyBtn) {
-      try {
-        await navigator.clipboard.writeText('');
-      } catch (e) {
-        // Ignore clipboard clear errors
-      }
-
-      let attempts = 0;
-      let clipboardText = '';
-
-      while (attempts < CONFIG.TIMING.MAX_CLIPBOARD_ATTEMPTS) {
-        const modelRespElem = turn.querySelector(CONFIG.SELECTORS.MODEL_RESPONSE);
-        if (modelRespElem) {
-          modelRespElem.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
-        }
-        
-        await Utils.sleep(CONFIG.TIMING.CLIPBOARD_CLEAR_DELAY);
-        copyBtn.click();
-        await Utils.sleep(CONFIG.TIMING.CLIPBOARD_READ_DELAY);
-        
-        clipboardText = await navigator.clipboard.readText();
-        if (clipboardText) break;
-        attempts++;
-      }
-
-      return clipboardText;
-    }
-
-    getConversationTitle() {
-      const titleCard = document.querySelector(CONFIG.SELECTORS.CONVERSATION_TITLE);
-      return titleCard ? titleCard.textContent.trim() : '';
-    }
-
-    generateFilename(customFilename, conversationTitle) {
-      // Priority: custom > conversation title > page title > timestamp
-      if (customFilename && customFilename.trim()) {
-        let base = customFilename.trim().replace(/\.[^/.]+$/, '');
-        base = base.replace(/[^a-zA-Z0-9_\-]/g, '_');
-        return base || `gemini_chat_export_${Utils.getDateString()}`;
-      }
-
-      // Try conversation title first
-      if (conversationTitle) {
-        const safeTitle = Utils.sanitizeFilename(conversationTitle);
-        if (safeTitle) return `${safeTitle}_${Utils.getDateString()}`;
-      }
-
-      // Fallback to page title
-      const pageTitle = document.querySelector('title')?.textContent.trim();
-      if (pageTitle) {
-        const safeTitle = Utils.sanitizeFilename(pageTitle);
-        if (safeTitle) return `${safeTitle}_${Utils.getDateString()}`;
-      }
-
-      // Final fallback
-      return `gemini_chat_export_${Utils.getDateString()}`;
+    _buildMarkdownHeader(conversationTitle) {
+      const title = conversationTitle || CONFIG.MARKDOWN_HEADER;
+      const timestamp = DateUtils.getLocaleString();
+      return `# ${title}\n\n> ${CONFIG.EXPORT_TIMESTAMP_FORMAT} ${timestamp}\n\n---\n\n`;
     }
 
     async buildMarkdown(turns, conversationTitle) {
-      let markdown = conversationTitle
-        ? `# ${conversationTitle}\n\n> Exported on: ${new Date().toLocaleString()}\n\n---\n\n`
-        : `# Gemini Chat Export\n\n> Exported on: ${new Date().toLocaleString()}\n\n---\n\n`;
+      let markdown = this._buildMarkdownHeader(conversationTitle);
 
       for (let i = 0; i < turns.length; i++) {
         const turn = turns[i];
-        Utils.createNotification(`Processing message ${i + 1} of ${turns.length}...`);
+        DOMUtils.createNotification(`Processing message ${i + 1} of ${turns.length}...`);
 
         // User message
         const userQueryElem = turn.querySelector(CONFIG.SELECTORS.USER_QUERY);
         if (userQueryElem) {
           const cb = userQueryElem.querySelector(`.${CONFIG.CHECKBOX_CLASS}`);
           if (cb?.checked) {
-            const userQuery = userQueryElem.textContent.trim();
-            markdown += `## 👤 You\n\n${userQuery}\n\n`;
+            const userQuery = this.markdownConverter.extractUserQuery(userQueryElem);
+            if (userQuery) {
+              markdown += `## 👤 You\n\n${userQuery}\n\n`;
+            }
           }
         }
 
-        // Model response
+        // Model response (DOM-based extraction)
         const modelRespElem = turn.querySelector(CONFIG.SELECTORS.MODEL_RESPONSE);
         if (modelRespElem) {
           const cb = modelRespElem.querySelector(`.${CONFIG.CHECKBOX_CLASS}`);
           if (cb?.checked) {
-            modelRespElem.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
-            await Utils.sleep(CONFIG.TIMING.MOUSEOVER_DELAY);
-            
-            const copyBtn = turn.querySelector(CONFIG.SELECTORS.COPY_BUTTON);
-            if (copyBtn) {
-              const clipboardText = await this.copyModelResponse(turn, copyBtn);
-              
-              if (clipboardText) {
-                const modelResponse = Utils.removeCitations(clipboardText);
-                markdown += `## 🤖 Gemini\n\n${modelResponse}\n\n`;
-              } else {
-                markdown += `## 🤖 Gemini\n\n[Note: Could not copy model response. Please manually copy and paste this response from message ${i + 1}.]\n\n`;
-              }
+            const modelResponse = this.markdownConverter.extractModelResponse(modelRespElem);
+            if (modelResponse) {
+              markdown += `## 🤖 Gemini\n\n${modelResponse}\n\n`;
             } else {
-              markdown += `## 🤖 Gemini\n\n[Note: Copy button not found. Please check the chat UI.]\n\n`;
+              markdown += `## 🤖 Gemini\n\n[Note: Could not extract model response from message ${i + 1}.]\n\n`;
             }
           }
         }
@@ -449,31 +811,10 @@
       return markdown;
     }
 
-    async exportToClipboard(markdown) {
-      await navigator.clipboard.writeText(markdown);
-      alert('Conversation copied to clipboard!');
-    }
-
-    async exportToFile(markdown, filename) {
-      const blob = new Blob([markdown], { type: 'text/markdown' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      
-      a.href = url;
-      a.download = `${filename}.md`;
-      document.body.appendChild(a);
-      a.click();
-      
-      setTimeout(() => {
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-      }, 1000);
-    }
-
     async execute(exportMode, customFilename) {
       try {
         // Load all messages
-        await this.scrollToLoadAll();
+        await ScrollService.loadAllMessages();
 
         // Get all turns and inject checkboxes
         const turns = Array.from(document.querySelectorAll(CONFIG.SELECTORS.CONVERSATION_TURN));
@@ -486,15 +827,15 @@
         }
 
         // Get title and build markdown
-        const conversationTitle = this.getConversationTitle();
+        const conversationTitle = FilenameService.getConversationTitle();
         const markdown = await this.buildMarkdown(turns, conversationTitle);
 
         // Export based on mode
         if (exportMode === 'clipboard') {
-          await this.exportToClipboard(markdown);
+          await FileExportService.exportToClipboard(markdown);
         } else {
-          const filename = this.generateFilename(customFilename, conversationTitle);
-          await this.exportToFile(markdown, filename);
+          const filename = FilenameService.generate(customFilename, conversationTitle);
+          FileExportService.downloadMarkdown(markdown, filename);
         }
 
       } catch (error) {
