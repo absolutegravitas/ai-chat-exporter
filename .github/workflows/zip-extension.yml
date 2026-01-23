@@ -21,8 +21,10 @@ jobs:
           cp popup.html popup.js dist/
           cp -r icons dist/
           mkdir -p dist/src/content_scripts
+          mkdir -p dist/src/lib
           cp src/content_scripts/gemini.js dist/src/content_scripts/
           cp src/content_scripts/chatgpt.js dist/src/content_scripts/
+          cp src/lib/turndown.js dist/src/lib/
           cd dist
           zip -r ../ai-chat-exporter.zip .
 
