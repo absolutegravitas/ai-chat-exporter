@@ -729,6 +729,16 @@
             <option value="custom">Custom</option>
           </select>
         </div>
+        <div style="margin-top:14px;border-top:1px solid #ccc;padding-top:10px;">
+          <label style="font-weight:bold;">
+            <input type="checkbox" id="gemini-include-attachments" checked>
+            Include attachments
+          </label>
+          <div style="margin-left:24px;margin-top:6px;font-size:0.9em;color:#666;">
+            <span style="display:block;">Images: Embedded as Base64 in Markdown</span>
+            <span style="display:block;">Other files: Downloaded to attachments/ subfolder</span>
+          </div>
+        </div>
       `;
     }
 
