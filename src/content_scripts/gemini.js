@@ -24,10 +24,11 @@
       MODEL_RESPONSE_CONTENT: 'message-content .markdown',
       CONVERSATION_TITLE: '.conversation-title',
       
-      // Attachment selectors
-      ATTACHMENT_IMAGE: 'img[src*="upload"], img[src*="file"], img.uploaded-image',
-      ATTACHMENT_FILE_CHIP: '[data-file-name], .file-chip, .uploaded-file',
-      ATTACHMENT_CONTAINER: '.attachment, .uploaded-media, [data-test-id="attachment"]'
+      USER_QUERY_CONTAINER: 'user-query, [data-testid="user-query"], [role="textbox"]',
+      
+      ATTACHMENT_IMAGE: 'img[src], img[data-src], .uploaded-image img, [data-uploaded-image] img, img.ql-upload, img[data-file-id]',
+      ATTACHMENT_FILE_CHIP: '[data-file-name], [data-file-id], .file-chip, .uploaded-file, [data-testid="file-chip"], [aria-label*="file"]',
+      ATTACHMENT_CONTAINER: '.attachment, .uploaded-media, [data-test-id="attachment"], [data-testid="file-attachment"], .file-attachment'
     },
     
     TIMING: {
@@ -152,57 +153,57 @@
       if (!userQueryElement) return [];
       
       const attachments = [];
+      const seen = new Set();
       
-      const images = userQueryElement.querySelectorAll(CONFIG.SELECTORS.ATTACHMENT_IMAGE);
-      images.forEach((img, index) => {
+      console.log('[AI Chat Exporter] Searching for attachments in element:', userQueryElement);
+      
+      const allImages = userQueryElement.querySelectorAll('img');
+      console.log('[AI Chat Exporter] Found images:', allImages.length);
+      
+      allImages.forEach((img, index) => {
+        if (!img.src || img.src === '' || img.src === 'data:') return;
+        if (img.src.includes('logo') || img.src.includes('icon') || img.src.includes('spinner')) return;
+        
         const src = img.src.startsWith('data:') ? img.src : 
           (img.src.startsWith('http') ? img.src : this.baseUrl + img.src);
-        attachments.push({
-          type: 'image',
-          src: src,
-          index: index,
-          element: img
-        });
+        
+        if (!seen.has(src)) {
+          seen.add(src);
+          const name = img.alt || `image_${index + 1}`;
+          attachments.push({
+            type: 'image',
+            src: src,
+            name: name,
+            index: index,
+            element: img
+          });
+          console.log('[AI Chat Exporter] Found image:', src.substring(0, 50));
+        }
       });
 
-      const fileChips = userQueryElement.querySelectorAll(CONFIG.SELECTORS.ATTACHMENT_FILE_CHIP);
+      const fileChips = userQueryElement.querySelectorAll('[data-file-name], [data-file-id], [data-testid*="file"]');
       fileChips.forEach((chip, index) => {
         const fileName = chip.getAttribute('data-file-name') || 
+                         chip.getAttribute('data-file-id') ||
+                         chip.getAttribute('data-testid') ||
                          chip.textContent?.trim() || 
                          chip.getAttribute('aria-label') ||
                          `uploaded_file_${index + 1}`;
-        attachments.push({
-          type: 'file',
-          name: fileName,
-          index: index,
-          element: chip
-        });
-      });
-
-      const attachmentContainers = userQueryElement.querySelectorAll(CONFIG.SELECTORS.ATTACHMENT_CONTAINER);
-      attachmentContainers.forEach((container, index) => {
-        const img = container.querySelector('img');
-        const fileName = container.getAttribute('data-filename') || 
-                         container.getAttribute('data-file-name') ||
-                         `attachment_${index + 1}`;
         
-        if (img) {
-          attachments.push({
-            type: 'image',
-            src: img.src,
-            index: index,
-            element: container
-          });
-        } else {
+        const key = fileName + '_file';
+        if (!seen.has(key)) {
+          seen.add(key);
           attachments.push({
             type: 'file',
             name: fileName,
             index: index,
-            element: container
+            element: chip
           });
+          console.log('[AI Chat Exporter] Found file chip:', fileName);
         }
       });
 
+      console.log('[AI Chat Exporter] Total attachments found:', attachments.length);
       return attachments;
     }
 
@@ -1300,26 +1301,47 @@ ${code}\n\
     async handleButtonClick() {
       this.checkboxManager.injectCheckboxes();
       
-      if (this.dropdown.style.display === 'none') {
+      const isDropdownHidden = this.dropdown.style.display === 'none';
+      
+      if (isDropdownHidden) {
         await this.loadSettings();
-        this.dropdown.style.display = '';
-        this.updateFilenameRowVisibility();
-        return;
       }
-
+      
       const exportMode = this.dropdown.querySelector(`input[name="${CONFIG.EXPORT_MODE_NAME}"]:checked`)?.value || 'file';
       const customFilename = exportMode === 'file' 
         ? this.dropdown.querySelector(`#${CONFIG.FILENAME_INPUT_ID}`)?.value.trim() || ''
         : '';
       const includeAttachments = this.dropdown.querySelector('#gemini-include-attachments')?.checked ?? true;
       const multiChat = this.dropdown.querySelector('#gemini-multi-chat')?.checked ?? false;
-
-      await this.saveSettings();
+      
+      if (isDropdownHidden && !multiChat) {
+        this.dropdown.style.display = '';
+        this.updateFilenameRowVisibility();
+        
+        this.dropdown.dataset.autoExport = 'true';
+        this.button.textContent = 'Click to Export';
+        setTimeout(() => {
+          if (this.dropdown.dataset.autoExport === 'true') {
+            this.dropdown.style.display = 'none';
+            this.dropdown.dataset.autoExport = '';
+            this.button.textContent = 'Exporting...';
+            this.performExport(exportMode, customFilename, includeAttachments, multiChat);
+          }
+        }, 500);
+        return;
+      }
       
       this.dropdown.style.display = 'none';
+      await this.performExport(exportMode, customFilename, includeAttachments, multiChat);
+    }
+
+    async performExport(exportMode, customFilename, includeAttachments, multiChat) {
       this.button.disabled = true;
+      this.button.textContent = 'Exporting...';
       
       try {
+        await this.saveSettings();
+        
         if (multiChat) {
           this.showProgress(0, 'Loading chats...');
           await this.exportMultiChat(exportMode, includeAttachments);
@@ -1330,8 +1352,9 @@ ${code}\n\
         }
       } catch (error) {
         console.error('Export error:', error);
+        alert('Export failed: ' + error.message);
       } finally {
-        setTimeout(() => this.hideProgress(), 1500);
+        setTimeout(() => this.hideProgress(), 2000);
         this.button.disabled = false;
         this.button.textContent = 'Export Chat';
         this.checkboxManager.removeAll();
