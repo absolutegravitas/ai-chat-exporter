@@ -1,0 +1,71 @@
+name: Release Builder
+
+on:
+  push:
+    branches:
+      - main
+      - feature/**
+  workflow_dispatch:
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Get version
+        id: version
+        run: |
+          VERSION=$(node -p "require('./manifest.json').version" 2>/dev/null || echo "0.0.0")
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Version: $VERSION"
+
+      - name: Create zip
+        run: |
+          zip -r ai-chat-exporter-v${{ steps.version.outputs.version }}.zip \
+            manifest.json \
+            popup.html \
+            popup.js \
+            src/ \
+            icons/ \
+            LICENSE \
+            README.md
+
+      - name: Delete old releases
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          for release in $(gh release list --limit 100 --json tagName -q '.[].tagName'); do
+            if [[ "$release" != "v${{ steps.version.outputs.version }}" ]]; then
+              echo "Deleting old release: $release"
+              gh release delete "$release" --yes || true
+            fi
+          done
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="v${{ steps.version.outputs.version }}"
+          
+          if gh release view "$TAG" &>/dev/null; then
+            echo "Release $TAG already exists, updating..."
+            gh release edit "$TAG" \
+              --title "v${{ steps.version.outputs.version }}" \
+              --notes "Auto-generated release from latest push"
+          else
+            echo "Creating new release $TAG..."
+            gh release create "$TAG" \
+              --title "v${{ steps.version.outputs.version }}" \
+              --notes "Auto-generated release from latest push"
+          fi
+
+      - name: Upload to Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          ZIPFILE="ai-chat-exporter-v${{ steps.version.outputs.version }}.zip"
+          gh release upload "v${{ steps.version.outputs.version }}" "$ZIPFILE" --clobber
