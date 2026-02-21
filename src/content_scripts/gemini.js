@@ -785,8 +785,16 @@
     static injectSidebarCheckboxes() {
       if (document.getElementById('gemini-sidebar-checkbox-injected')) return;
       
-      const sidebar = document.querySelector('nav, [class*="sidebar"], [class*="chat-list"]') || document.body;
-      const chatLinks = sidebar.querySelectorAll('a[href*="/chat/"]');
+      const sidebar = document.querySelector('[data-test-id="all-conversations"]') || 
+                      document.querySelector('.conversations-container') ||
+                      document.querySelector('.chat-history');
+      if (!sidebar) {
+        console.log('[AI Chat Exporter] Sidebar not found');
+        return;
+      }
+      
+      const chatLinks = sidebar.querySelectorAll('a[data-test-id="conversation"]');
+      console.log('[AI Chat Exporter] Found chat links:', chatLinks.length);
       
       if (chatLinks.length === 0) return;
       
@@ -799,6 +807,8 @@
         checkbox.title = 'Select to export this chat';
         checkbox.style.marginRight = '8px';
         checkbox.style.cursor = 'pointer';
+        checkbox.style.zIndex = '9999';
+        checkbox.style.position = 'relative';
         
         link.insertBefore(checkbox, link.firstChild);
       });
@@ -1058,7 +1068,6 @@ ${code}\n\
       this.selectionManager = new SelectionManager(this.checkboxManager);
       this.exportService = new ExportService(this.checkboxManager);
       this.button = null;
-      this.dropdown = null;
     }
 
     init() {
@@ -1069,147 +1078,12 @@ ${code}\n\
 
     createUI() {
       this.button = UIBuilder.createButton();
-      this.dropdown = UIBuilder.createDropdown();
-      
-      document.body.appendChild(this.dropdown);
       document.body.appendChild(this.button);
-      
-      this.setupFilenameRowToggle();
-    }
-
-    setupFilenameRowToggle() {
-      const updateFilenameRow = () => {
-        const fileRow = this.dropdown.querySelector('#gemini-filename-row');
-        const fileRadio = this.dropdown.querySelector(`input[name="${CONFIG.EXPORT_MODE_NAME}"][value="file"]`);
-        if (fileRow && fileRadio) {
-          fileRow.style.display = fileRadio.checked ? 'block' : 'none';
-        }
-      };
-
-      this.dropdown.querySelectorAll(`input[name="${CONFIG.EXPORT_MODE_NAME}"]`)
-        .forEach(radio => radio.addEventListener('change', updateFilenameRow));
-      
-      updateFilenameRow();
     }
 
     attachEventListeners() {
       this.button.addEventListener('click', () => this.handleButtonClick());
-
-      const selectDropdown = this.dropdown.querySelector(`#${CONFIG.SELECT_DROPDOWN_ID}`);
-      selectDropdown.addEventListener('change', (e) => this.handleSelectionChange(e.target.value));
-
-      const modeRadios = this.dropdown.querySelectorAll(`input[name="${CONFIG.EXPORT_MODE_NAME}"]`);
-      modeRadios.forEach(radio => {
-        radio.addEventListener('change', () => this.updateFilenameRowVisibility());
-      });
-
-      const multiChatCheckbox = this.dropdown.querySelector('#gemini-multi-chat');
-      if (multiChatCheckbox) {
-        multiChatCheckbox.addEventListener('change', (e) => {
-          const chatList = this.dropdown.querySelector('#gemini-chat-list');
-          if (chatList) {
-            chatList.style.display = e.target.checked ? 'block' : 'none';
-          }
-        });
-      }
-
-      const loadChatsLink = this.dropdown.querySelector('#gemini-load-chats');
-      if (loadChatsLink) {
-        loadChatsLink.addEventListener('click', (e) => {
-          e.preventDefault();
-          this.loadChatList();
-        });
-      }
-
-      document.addEventListener('change', (e) => {
-        if (e.target?.classList?.contains(CONFIG.CHECKBOX_CLASS)) {
-          const select = document.getElementById(CONFIG.SELECT_DROPDOWN_ID);
-          if (select && select.value !== 'custom') {
-            select.value = 'custom';
-            this.selectionManager.lastSelection = 'custom';
-          }
-        }
-      });
-
-      document.addEventListener('mousedown', (e) => {
-        if (this.dropdown.style.display !== 'none' && 
-            !this.dropdown.contains(e.target) && 
-            e.target !== this.button) {
-          this.dropdown.style.display = 'none';
-        }
-      });
     }
-
-    async loadChatList() {
-      const chatList = this.dropdown.querySelector('#gemini-chat-list');
-      if (!chatList) return;
-      
-      chatList.innerHTML = '<div style="padding:8px;font-size:12px;">Loading chats...</div>';
-      
-      const chatItems = document.querySelectorAll('a[href*="/chat/"]');
-      const chats = [];
-      const seen = new Set();
-      
-      chatItems.forEach(item => {
-        const href = item.href;
-        const title = item.textContent?.trim() || 'Untitled Chat';
-        if (href && !seen.has(href)) {
-          seen.add(href);
-          chats.push({ href, title });
-        }
-      });
-      
-      if (chats.length === 0) {
-        chatList.innerHTML = '<div style="padding:8px;font-size:12px;color:#888;">No chats found. Try opening the chat sidebar first.</div>';
-        return;
-      }
-      
-      chatList.innerHTML = chats.map(chat => `
-        <label style="display:block;padding:4px 8px;cursor:pointer;font-size:12px;">
-          <input type="checkbox" value="${chat.href}" style="margin-right:6px;">
-          ${chat.title.substring(0, 40)}${chat.title.length > 40 ? '...' : ''}
-        </label>
-      `).join('');
-    }
-
-    handleSelectionChange(value) {
-      this.checkboxManager.injectCheckboxes();
-      this.selectionManager.applySelection(value);
-    }
-
-    async loadSettings() {
-      console.log('[AI Chat Exporter] Loading settings...');
-      const settings = await SettingsService.load();
-      const defaults = SettingsService.getDefaults();
-      console.log('[AI Chat Exporter] Loaded settings:', settings, 'defaults:', defaults);
-      
-      const exportMode = settings[CONFIG.STORAGE_KEYS.EXPORT_MODE] || defaults[CONFIG.STORAGE_KEYS.EXPORT_MODE];
-      const includeAttachments = settings[CONFIG.STORAGE_KEYS.INCLUDE_ATTACHMENTS] ?? defaults[CONFIG.STORAGE_KEYS.INCLUDE_ATTACHMENTS];
-      const messageSelection = settings[CONFIG.STORAGE_KEYS.MESSAGE_SELECTION] || defaults[CONFIG.STORAGE_KEYS.MESSAGE_SELECTION];
-      
-      const modeRadios = this.dropdown.querySelectorAll(`input[name="${CONFIG.EXPORT_MODE_NAME}"]`);
-      modeRadios.forEach(radio => {
-        radio.checked = radio.value === exportMode;
-      });
-      
-      const attachmentsCheckbox = this.dropdown.querySelector('#gemini-include-attachments');
-      if (attachmentsCheckbox) attachmentsCheckbox.checked = includeAttachments;
-      
-      const selectionSelect = this.dropdown.querySelector(`#${CONFIG.SELECT_DROPDOWN_ID}`);
-      if (selectionSelect) selectionSelect.value = messageSelection;
-      
-      this.updateFilenameRowVisibility();
-    }
-
-    updateFilenameRowVisibility() {}
-
-    showProgress(percent, text) {
-      this.button.textContent = text || 'Exporting...';
-    }
-
-    hideProgress() {}
-
-    async saveSettings() {}
 
     async handleButtonClick() {
       console.log('[AI Chat Exporter] Export button clicked');
@@ -1217,9 +1091,7 @@ ${code}\n\
       UIBuilder.injectSidebarCheckboxes();
       
       const selectedChats = this.getSelectedChatsFromSidebar();
-      const currentUrl = window.location.href;
-      
-      console.log('[AI Chat Exporter] Selected chats from sidebar:', selectedChats.length);
+      console.log('[AI Chat Exporter] Selected chats:', selectedChats.length);
       
       this.button.disabled = true;
       this.button.textContent = 'Exporting...';
@@ -1249,7 +1121,7 @@ ${code}\n\
     }
 
     getSelectedChatsFromSidebar() {
-      const checkboxes = document.querySelectorAll('input[type="checkbox"][value*="/chat/"]:checked');
+      const checkboxes = document.querySelectorAll('input[type="checkbox"][value*="/app/"]:checked');
       return Array.from(checkboxes).map(cb => cb.value);
     }
 
