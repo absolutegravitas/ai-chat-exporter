@@ -54,8 +54,60 @@
     
     DEFAULT_FILENAME: 'gemini_chat_export',
     MARKDOWN_HEADER: '# Gemini Chat Export',
-    EXPORT_TIMESTAMP_FORMAT: 'Exported on:'
+    EXPORT_TIMESTAMP_FORMAT: 'Exported on:',
+    
+    STORAGE_KEYS: {
+      EXPORT_MODE: 'exportMode',
+      INCLUDE_ATTACHMENTS: 'includeAttachments',
+      CUSTOM_FILENAME: 'customFilename',
+      MESSAGE_SELECTION: 'messageSelection'
+    }
   };
+
+  // ============================================================================
+  // SETTINGS SERVICE - Persist user preferences
+  // ============================================================================
+  
+  class SettingsService {
+    static async save(settings) {
+      try {
+        if (chrome?.storage?.sync) {
+          await new Promise((resolve) => {
+            chrome.storage.sync.set(settings, resolve);
+          });
+        }
+      } catch (e) {
+        console.warn('Failed to save settings:', e);
+      }
+    }
+
+    static async load() {
+      try {
+        if (chrome?.storage?.sync) {
+          return await new Promise((resolve) => {
+            chrome.storage.sync.get([
+              CONFIG.STORAGE_KEYS.EXPORT_MODE,
+              CONFIG.STORAGE_KEYS.INCLUDE_ATTACHMENTS,
+              CONFIG.STORAGE_KEYS.CUSTOM_FILENAME,
+              CONFIG.STORAGE_KEYS.MESSAGE_SELECTION
+            ], resolve);
+          });
+        }
+      } catch (e) {
+        console.warn('Failed to load settings:', e);
+      }
+      return {};
+    }
+
+    static getDefaults() {
+      return {
+        [CONFIG.STORAGE_KEYS.EXPORT_MODE]: 'file',
+        [CONFIG.STORAGE_KEYS.INCLUDE_ATTACHMENTS]: true,
+        [CONFIG.STORAGE_KEYS.CUSTOM_FILENAME]: '',
+        [CONFIG.STORAGE_KEYS.MESSAGE_SELECTION]: 'all'
+      };
+    }
+  }
 
   // ============================================================================
   // UTILITY SERVICES
@@ -697,6 +749,12 @@
       const inputStyles = this.getInputStyles(isDark);
       
       return `
+        <div id="gemini-progress-container" style="display:none;margin-bottom:12px;">
+          <div style="font-size:12px;margin-bottom:4px;" id="gemini-progress-text">Exporting...</div>
+          <div style="width:100%;height:8px;background:#eee;border-radius:4px;overflow:hidden;">
+            <div id="gemini-progress-bar" style="width:0%;height:100%;background:#1a73e8;transition:width 0.3s;"></div>
+          </div>
+        </div>
         <div style="margin-top:10px;">
           <label style="margin-right:10px;">
             <input type="radio" name="${CONFIG.EXPORT_MODE_NAME}" value="file" checked>
@@ -738,6 +796,20 @@
             <span style="display:block;">Images: Embedded as Base64 in Markdown</span>
             <span style="display:block;">Other files: Downloaded to attachments/ subfolder</span>
           </div>
+        </div>
+        <div style="margin-top:14px;border-top:1px solid #ccc;padding-top:10px;">
+          <label style="font-weight:bold;">
+            <input type="checkbox" id="gemini-multi-chat">
+            Export multiple chats
+          </label>
+          <div id="gemini-chat-list" style="display:none;max-height:150px;overflow-y:auto;margin-top:8px;border:1px solid #ddd;border-radius:4px;padding:4px;">
+            <div style="font-size:11px;color:#888;padding:4px;">
+              <a href="#" id="gemini-load-chats" style="color:#1a73e8;">Click to load your chat list</a>
+            </div>
+          </div>
+        </div>
+        <div style="margin-top:10px;font-size:11px;color:#888;text-align:center;">
+          Settings are saved automatically for next time
         </div>
       `;
     }
@@ -993,29 +1065,22 @@ ${code}\n\
       return markdown;
     }
 
-    async execute(exportMode, customFilename) {
+    async execute(exportMode, customFilename, includeAttachments = true) {
       try {
-        // Load all messages
         await ScrollService.loadAllMessages();
 
-        // Get all turns and inject checkboxes
         const turns = Array.from(document.querySelectorAll(CONFIG.SELECTORS.CONVERSATION_TURN));
         this.checkboxManager.injectCheckboxes();
 
-        // Check if any messages selected
         if (!this.checkboxManager.hasAnyChecked()) {
           alert('Please select at least one message to export using the checkboxes or the dropdown.');
           return;
         }
 
-        const includeAttachmentsCheckbox = document.getElementById('gemini-include-attachments');
-        const includeAttachments = includeAttachmentsCheckbox?.checked ?? true;
-
         const conversationTitle = FilenameService.getConversationTitle();
         const exportFolder = FilenameService.generate(customFilename, conversationTitle);
         const markdown = await this.buildMarkdown(turns, conversationTitle, includeAttachments, exportFolder);
 
-        // Export based on mode
         if (exportMode === 'clipboard') {
           await FileExportService.exportToClipboard(markdown);
         } else {
@@ -1026,6 +1091,17 @@ ${code}\n\
         console.error('Export error:', error);
         alert(`Export failed: ${error.message}`);
       }
+    }
+
+    async executeForChat(chatUrl, exportMode, includeAttachments = true) {
+      const currentUrl = window.location.href;
+      
+      if (chatUrl !== currentUrl) {
+        window.location.href = chatUrl;
+        await new Promise(resolve => setTimeout(resolve, 3000));
+      }
+      
+      await this.execute(exportMode, '', includeAttachments);
     }
   }
 
@@ -1073,14 +1149,34 @@ ${code}\n\
     }
 
     attachEventListeners() {
-      // Button click
       this.button.addEventListener('click', () => this.handleButtonClick());
 
-      // Selection dropdown
       const selectDropdown = this.dropdown.querySelector(`#${CONFIG.SELECT_DROPDOWN_ID}`);
       selectDropdown.addEventListener('change', (e) => this.handleSelectionChange(e.target.value));
 
-      // Checkbox manual changes
+      const modeRadios = this.dropdown.querySelectorAll(`input[name="${CONFIG.EXPORT_MODE_NAME}"]`);
+      modeRadios.forEach(radio => {
+        radio.addEventListener('change', () => this.updateFilenameRowVisibility());
+      });
+
+      const multiChatCheckbox = this.dropdown.querySelector('#gemini-multi-chat');
+      if (multiChatCheckbox) {
+        multiChatCheckbox.addEventListener('change', (e) => {
+          const chatList = this.dropdown.querySelector('#gemini-chat-list');
+          if (chatList) {
+            chatList.style.display = e.target.checked ? 'block' : 'none';
+          }
+        });
+      }
+
+      const loadChatsLink = this.dropdown.querySelector('#gemini-load-chats');
+      if (loadChatsLink) {
+        loadChatsLink.addEventListener('click', (e) => {
+          e.preventDefault();
+          this.loadChatList();
+        });
+      }
+
       document.addEventListener('change', (e) => {
         if (e.target?.classList?.contains(CONFIG.CHECKBOX_CLASS)) {
           const select = document.getElementById(CONFIG.SELECT_DROPDOWN_ID);
@@ -1091,7 +1187,6 @@ ${code}\n\
         }
       });
 
-      // Click outside to hide dropdown
       document.addEventListener('mousedown', (e) => {
         if (this.dropdown.style.display !== 'none' && 
             !this.dropdown.contains(e.target) && 
@@ -1101,47 +1196,170 @@ ${code}\n\
       });
     }
 
+    async loadChatList() {
+      const chatList = this.dropdown.querySelector('#gemini-chat-list');
+      if (!chatList) return;
+      
+      chatList.innerHTML = '<div style="padding:8px;font-size:12px;">Loading chats...</div>';
+      
+      const chatItems = document.querySelectorAll('a[href*="/chat/"]');
+      const chats = [];
+      const seen = new Set();
+      
+      chatItems.forEach(item => {
+        const href = item.href;
+        const title = item.textContent?.trim() || 'Untitled Chat';
+        if (href && !seen.has(href)) {
+          seen.add(href);
+          chats.push({ href, title });
+        }
+      });
+      
+      if (chats.length === 0) {
+        chatList.innerHTML = '<div style="padding:8px;font-size:12px;color:#888;">No chats found. Try opening the chat sidebar first.</div>';
+        return;
+      }
+      
+      chatList.innerHTML = chats.map(chat => `
+        <label style="display:block;padding:4px 8px;cursor:pointer;font-size:12px;">
+          <input type="checkbox" value="${chat.href}" style="margin-right:6px;">
+          ${chat.title.substring(0, 40)}${chat.title.length > 40 ? '...' : ''}
+        </label>
+      `).join('');
+    }
+
     handleSelectionChange(value) {
       this.checkboxManager.injectCheckboxes();
       this.selectionManager.applySelection(value);
+    }
+
+    async loadSettings() {
+      const settings = await SettingsService.load();
+      const defaults = SettingsService.getDefaults();
+      
+      const exportMode = settings[CONFIG.STORAGE_KEYS.EXPORT_MODE] || defaults[CONFIG.STORAGE_KEYS.EXPORT_MODE];
+      const includeAttachments = settings[CONFIG.STORAGE_KEYS.INCLUDE_ATTACHMENTS] ?? defaults[CONFIG.STORAGE_KEYS.INCLUDE_ATTACHMENTS];
+      const messageSelection = settings[CONFIG.STORAGE_KEYS.MESSAGE_SELECTION] || defaults[CONFIG.STORAGE_KEYS.MESSAGE_SELECTION];
+      
+      const modeRadios = this.dropdown.querySelectorAll(`input[name="${CONFIG.EXPORT_MODE_NAME}"]`);
+      modeRadios.forEach(radio => {
+        radio.checked = radio.value === exportMode;
+      });
+      
+      const attachmentsCheckbox = this.dropdown.querySelector('#gemini-include-attachments');
+      if (attachmentsCheckbox) attachmentsCheckbox.checked = includeAttachments;
+      
+      const selectionSelect = this.dropdown.querySelector(`#${CONFIG.SELECT_DROPDOWN_ID}`);
+      if (selectionSelect) selectionSelect.value = messageSelection;
+      
+      this.updateFilenameRowVisibility();
+    }
+
+    updateFilenameRowVisibility() {
+      const fileRow = this.dropdown.querySelector('#gemini-filename-row');
+      const fileRadio = this.dropdown.querySelector(`input[name="${CONFIG.EXPORT_MODE_NAME}"][value="file"]`);
+      if (fileRow && fileRadio) {
+        fileRow.style.display = fileRadio.checked ? 'block' : 'none';
+      }
+    }
+
+    showProgress(percent, text) {
+      const container = this.dropdown.querySelector('#gemini-progress-container');
+      const bar = this.dropdown.querySelector('#gemini-progress-bar');
+      const progressText = this.dropdown.querySelector('#gemini-progress-text');
+      if (container && bar && progressText) {
+        container.style.display = 'block';
+        bar.style.width = percent + '%';
+        progressText.textContent = text;
+      }
+    }
+
+    hideProgress() {
+      const container = this.dropdown.querySelector('#gemini-progress-container');
+      if (container) {
+        container.style.display = 'none';
+      }
+    }
+
+    async saveSettings() {
+      const exportMode = this.dropdown.querySelector(`input[name="${CONFIG.EXPORT_MODE_NAME}"]:checked`)?.value || 'file';
+      const includeAttachments = this.dropdown.querySelector('#gemini-include-attachments')?.checked ?? true;
+      const messageSelection = this.dropdown.querySelector(`#${CONFIG.SELECT_DROPDOWN_ID}`)?.value || 'all';
+      
+      await SettingsService.save({
+        [CONFIG.STORAGE_KEYS.EXPORT_MODE]: exportMode,
+        [CONFIG.STORAGE_KEYS.INCLUDE_ATTACHMENTS]: includeAttachments,
+        [CONFIG.STORAGE_KEYS.MESSAGE_SELECTION]: messageSelection
+      });
     }
 
     async handleButtonClick() {
       this.checkboxManager.injectCheckboxes();
       
       if (this.dropdown.style.display === 'none') {
+        await this.loadSettings();
         this.dropdown.style.display = '';
+        this.updateFilenameRowVisibility();
         return;
       }
 
+      const exportMode = this.dropdown.querySelector(`input[name="${CONFIG.EXPORT_MODE_NAME}"]:checked`)?.value || 'file';
+      const customFilename = exportMode === 'file' 
+        ? this.dropdown.querySelector(`#${CONFIG.FILENAME_INPUT_ID}`)?.value.trim() || ''
+        : '';
+      const includeAttachments = this.dropdown.querySelector('#gemini-include-attachments')?.checked ?? true;
+      const multiChat = this.dropdown.querySelector('#gemini-multi-chat')?.checked ?? false;
+
+      await this.saveSettings();
+      
+      this.dropdown.style.display = 'none';
       this.button.disabled = true;
-      this.button.textContent = 'Exporting...';
-
+      
       try {
-        const exportMode = this.dropdown.querySelector(`input[name="${CONFIG.EXPORT_MODE_NAME}"]:checked`)?.value || 'file';
-        const customFilename = exportMode === 'file' 
-          ? this.dropdown.querySelector(`#${CONFIG.FILENAME_INPUT_ID}`)?.value.trim() || ''
-          : '';
-
-        this.dropdown.style.display = 'none';
-        
-        await this.exportService.execute(exportMode, customFilename);
-
-        // Cleanup after export
-        this.checkboxManager.removeAll();
-        this.selectionManager.reset();
-        
-        if (exportMode === 'file') {
-          const filenameInput = this.dropdown.querySelector(`#${CONFIG.FILENAME_INPUT_ID}`);
-          if (filenameInput) filenameInput.value = '';
+        if (multiChat) {
+          this.showProgress(0, 'Loading chats...');
+          await this.exportMultiChat(exportMode, includeAttachments);
+        } else {
+          this.showProgress(30, 'Exporting chat...');
+          await this.exportService.execute(exportMode, customFilename, includeAttachments);
+          this.showProgress(100, 'Done!');
         }
-
       } catch (error) {
         console.error('Export error:', error);
       } finally {
+        setTimeout(() => this.hideProgress(), 1500);
         this.button.disabled = false;
         this.button.textContent = 'Export Chat';
+        this.checkboxManager.removeAll();
+        this.selectionManager.reset();
       }
+    }
+
+    async exportMultiChat(exportMode, includeAttachments) {
+      const chatList = this.dropdown.querySelector('#gemini-chat-list');
+      const checkboxes = chatList?.querySelectorAll('input[type="checkbox"]:checked') || [];
+      const chatLinks = Array.from(checkboxes).map(cb => cb.value);
+      
+      if (chatLinks.length === 0) {
+        alert('Please select at least one chat to export');
+        this.hideProgress();
+        this.button.disabled = false;
+        return;
+      }
+
+      let exported = 0;
+      for (const chatUrl of chatLinks) {
+        this.showProgress(Math.round((exported / chatLinks.length) * 100), `Exporting ${exported + 1}/${chatLinks.length}...`);
+        
+        try {
+          await this.exportService.executeForChat(chatUrl, exportMode, includeAttachments);
+        } catch (e) {
+          console.warn('Failed to export chat:', chatUrl, e);
+        }
+        exported++;
+      }
+      
+      this.showProgress(100, `Exported ${exported} chats!`);
     }
 
     observeStorageChanges() {
