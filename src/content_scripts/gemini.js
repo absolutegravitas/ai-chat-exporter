@@ -26,7 +26,7 @@
       
       USER_QUERY_CONTAINER: 'user-query, [data-testid="user-query"], [role="textbox"]',
       
-      ATTACHMENT_IMAGE: 'img[src], img[data-src], .uploaded-image img, [data-uploaded-image] img, img.ql-upload, img[data-file-id]',
+      ATTACHMENT_IMAGE: 'img[data-test-id="uploaded-img"], img.preview-image, img[src*="googleusercontent"]',
       ATTACHMENT_FILE_CHIP: '[data-file-name], [data-file-id], .file-chip, .uploaded-file, [data-testid="file-chip"], [aria-label*="file"]',
       ATTACHMENT_CONTAINER: '.attachment, .uploaded-media, [data-test-id="attachment"], [data-testid="file-attachment"], .file-attachment'
     },
@@ -155,21 +155,19 @@
       const attachments = [];
       const seen = new Set();
       
-      console.log('[AI Chat Exporter] Searching for attachments in element:', userQueryElement);
+      console.log('[AI Chat Exporter] Searching for attachments');
       
-      const allImages = userQueryElement.querySelectorAll('img');
-      console.log('[AI Chat Exporter] Found images:', allImages.length);
+      const uploadedImages = userQueryElement.querySelectorAll('img[data-test-id="uploaded-img"], img.preview-image');
+      console.log('[AI Chat Exporter] Found uploaded images:', uploadedImages.length);
       
-      allImages.forEach((img, index) => {
-        if (!img.src || img.src === '' || img.src === 'data:') return;
-        if (img.src.includes('logo') || img.src.includes('icon') || img.src.includes('spinner')) return;
+      uploadedImages.forEach((img, index) => {
+        if (!img.src || img.src === '') return;
         
-        const src = img.src.startsWith('data:') ? img.src : 
-          (img.src.startsWith('http') ? img.src : this.baseUrl + img.src);
+        const src = img.src;
+        const name = img.alt || `uploaded_image_${index + 1}.jpg`;
         
         if (!seen.has(src)) {
           seen.add(src);
-          const name = img.alt || `image_${index + 1}`;
           attachments.push({
             type: 'image',
             src: src,
@@ -177,7 +175,7 @@
             index: index,
             element: img
           });
-          console.log('[AI Chat Exporter] Found image:', src.substring(0, 50));
+          console.log('[AI Chat Exporter] Found uploaded image:', name, src.substring(0, 50));
         }
       });
 
@@ -208,21 +206,30 @@
     }
 
     async imageToBase64(url) {
+      return null;
+    }
+
+    async downloadImage(url, filename, exportFolder) {
       try {
-        if (url.startsWith('data:')) {
-          return url;
-        }
-        
-        const response = await fetch(url);
-        const blob = await response.blob();
+        const attachmentFilename = `${exportFolder}/attachments/${filename}`;
         
         return new Promise((resolve) => {
-          const reader = new FileReader();
-          reader.onloadend = () => resolve(reader.result);
-          reader.readAsDataURL(blob);
+          chrome.downloads.download({
+            url: url,
+            filename: attachmentFilename,
+            saveAs: false
+          }, (downloadId) => {
+            if (chrome.runtime.lastError) {
+              console.warn('Image download failed:', chrome.runtime.lastError);
+              resolve(null);
+            } else {
+              console.log('[AI Chat Exporter] Downloaded image:', filename);
+              resolve(attachmentFilename);
+            }
+          });
         });
       } catch (error) {
-        console.warn('Failed to convert image to Base64:', url, error);
+        console.warn('Failed to download image:', url, error);
         return null;
       }
     }
@@ -973,12 +980,18 @@ ${code}\n\
             let attachmentMarkdown = '';
             if (includeAttachments) {
               const attachments = this.attachmentService.findUserAttachments(userQueryElem);
+              console.log('[AI Chat Exporter] Found attachments:', attachments.length);
               
               for (const attachment of attachments) {
                 if (attachment.type === 'image') {
-                  const base64 = await this.attachmentService.imageToBase64(attachment.src);
-                  if (base64) {
-                    attachmentMarkdown += `\n![${attachment.name || 'image'}](${base64})\n`;
+                  const safeName = this.attachmentService.sanitizeFilename(attachment.name || 'image_' + Date.now() + '.jpg');
+                  const savedPath = await this.attachmentService.downloadImage(
+                    attachment.src,
+                    safeName,
+                    exportFolder
+                  );
+                  if (savedPath) {
+                    attachmentMarkdown += `\n![${safeName}](${savedPath})\n`;
                   }
                 } else if (attachment.type === 'file') {
                   const safeName = this.attachmentService.sanitizeFilename(attachment.name || 'file');
