@@ -46,9 +46,13 @@ jobs:
             --title "$TAG" \
             --notes "Auto-generated release from latest push"
 
+      - name: Wait for release
+        run: sleep 2
+
       - name: Upload to Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          TAG="v${{ steps.version.outputs.version }}"
           ZIPFILE="ai-chat-exporter-v${{ steps.version.outputs.version }}.zip"
           gh release upload "$TAG" "$ZIPFILE"
