@@ -1,26 +1,59 @@
 <!DOCTYPE html>
-<!--
-  popup.html
-  Extension popup UI for AI Chat Exporter
-  - Checkbox to hide/show export button on chat pages
-  - Simple, accessible layout
--->
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <title>AI Chat Exporter</title>
   <style>
-    body { font-family: sans-serif; margin: 16px; }
-    label { display: flex; align-items: center; gap: 8px; }
-    button { margin-top: 12px; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; margin: 16px; width: 280px; }
+    .section { margin-bottom: 16px; }
+    .section-title { font-weight: 600; font-size: 14px; margin-bottom: 8px; color: #333; }
+    label { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+    .donation-section { border-top: 1px solid #eee; padding-top: 12px; }
+    .donation-buttons { display: flex; gap: 8px; flex-direction: column; }
+    .donate-btn { 
+      display: flex; 
+      align-items: center; 
+      justify-content: center; 
+      gap: 8px;
+      padding: 10px 16px; 
+      border: none; 
+      border-radius: 6px; 
+      font-size: 14px; 
+      font-weight: 500; 
+      cursor: pointer; 
+      text-decoration: none;
+      transition: opacity 0.2s;
+    }
+    .donate-btn:hover { opacity: 0.9; }
+    .stripe { background: #635bff; color: white; }
+    .airwallex { background: #0db57d; color: white; }
+    .heart { color: #e91e63; }
   </style>
 </head>
 <body>
-  <!-- Checkbox to hide/show export button -->
-  <label>
-    <input type="checkbox" id="hideExportBtn">
-    Hide export button
-  </label>
+  <div class="section">
+    <div class="section-title">Settings</div>
+    <label>
+      <input type="checkbox" id="hideExportBtn">
+      Hide export button
+    </label>
+  </div>
+  
+  <div class="section donation-section">
+    <div class="section-title">Support the Developer <span class="heart">♥</span></div>
+    <p style="font-size: 12px; color: #666; margin: 0 0 10px 0;">
+      This extension is free and open source. Please consider supporting ongoing development!
+    </p>
+    <div class="donation-buttons">
+      <a href="https://buy.stripe.com/placeholder_stripe" target="_blank" class="donate-btn stripe">
+        Donate via Stripe
+      </a>
+      <a href="https://pay.airwallex.com/placeholder_airwallex" target="_blank" class="donate-btn airwallex">
+        Donate via Airwallex
+      </a>
+    </div>
+  </div>
+  
   <script src="popup.js"></script>
 </body>
 </html>

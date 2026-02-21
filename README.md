@@ -1,10 +1,13 @@
 # AI Chat Exporter
 
-Export your Gemini and ChatGPT conversations to perfectly formatted Markdown files with complete preservation of LaTeX math, code blocks, tables, and all formatting. Version 4.0.0 introduces DOM-based extraction for Gemini—eliminating clipboard dependencies for more reliable, privacy-friendly exports.
+Export your Gemini and ChatGPT conversations to perfectly formatted Markdown files with complete preservation of LaTeX math, code blocks, tables, and all formatting. Version 4.0.2 adds attachment support—export uploaded images and files alongside your chats.
 
 ## Features
 
-- **DOM-based extraction for Gemini (v4.0.0+)**: Direct HTML parsing without clipboard dependency using Turndown library
+- **Attachment Support (v4.0.2+)**: Export uploaded images and files with your chat conversations
+- **Images as Base64**: Uploaded images are embedded directly in exported Markdown
+- **File Downloads**: Non-image files are saved to an attachments/ subfolder
+- **DOM-based extraction for Gemini**: Direct HTML parsing without clipboard dependency using Turndown library
 - Export your full Gemini or ChatGPT chat conversation to Markdown, preserving formatting (code, tables, LaTeX, etc.)
 - Dedicated "Export Chat" button appears automatically on every Gemini and ChatGPT chat page
 - Option to hide the export button via the extension popup
@@ -22,8 +25,8 @@ Export your Gemini and ChatGPT conversations to perfectly formatted Markdown fil
 ## Installation
 
 1. **Download the latest release**
-   - Go to the [Releases](https://github.com/amazingpaddy/gemini-chat-exporter/releases) page
-   - Download the `gemini-chat-exporter.zip` file from the latest release
+   - Go to the [Releases](https://github.com/absolutegravitas/ai-chat-exporter/releases) page
+   - Download the `ai-chat-exporter.zip` file from the latest release
    - Unzip the file to a folder on your computer
 
 2. **Load the extension in Chrome**
@@ -36,25 +39,12 @@ Export your Gemini and ChatGPT conversations to perfectly formatted Markdown fil
 
 Support for other LLMs like DeepSeek, Claude, and Grok will be added in future updates.
 
-## What's New in v4.0.0
+## What's New in v4.0.2
 
-### 🎉 DOM-Based Extraction for Gemini
-- **No more clipboard dependency**: Gemini exports now use direct DOM parsing with the Turndown library
-- **More reliable**: Eliminates clipboard race conditions and retry logic
-- **Better formatting**: Direct HTML-to-Markdown conversion preserves complex formatting
-- **Math formula support**: Extracts LaTeX equations from Gemini's `data-math` attributes
-- **Enhanced privacy**: Clipboard access no longer required for Gemini
-
-### Technical Improvements
-- Integrated [Turndown.js](https://github.com/mixmark-io/turndown) for robust HTML→Markdown conversion
-- Custom Turndown rules for math blocks, inline math, and tables
-- Improved citation removal algorithm
-- Fallback to manual DOM traversal if Turndown unavailable
-
-### Migration Notes
-- Old clipboard-based implementation preserved as `gemini_old.js`
-- ChatGPT export unchanged (still uses clipboard method)
-- All UI features maintained (checkboxes, selection presets, custom filenames)
+### 🎉 Attachment Support
+- **Images as Base64**: Uploaded images are now embedded directly in exported Markdown
+- **File Downloads**: Non-image files are downloaded to an attachments/ subfolder
+- **Include Attachments Toggle**: New checkbox to include or exclude attachments in export
 
 ## Usage
 
@@ -66,13 +56,16 @@ Support for other LLMs like DeepSeek, Claude, and Grok will be added in future u
    - **Export as file** (default): Downloads a Markdown (.md) file
    - **Export to clipboard**: Copies the conversation to your clipboard for pasting elsewhere
 5. **(Optional)** Enter a custom filename, or leave blank to automatically use the conversation title or timestamp.
-6. Click **Export Chat** again to start. The button will show "Exporting..." during the process.
-7. The extension will:
+6. **(Optional)** Check "Include attachments" to export uploaded images and files.
+7. Click **Export Chat** again to start. The button will show "Exporting..." during the process.
+8. The extension will:
    - Automatically scroll to load all messages in the conversation (including lazy-loaded older messages)
    - Extract content directly from the DOM (no clipboard needed!)
    - Convert formatting, tables, code blocks, and math formulas to Markdown
    - Remove Gemini citation markers like `[cite_start]` and `[cite:1,2,3]`
-8. Your exported file will be named: `<conversation_title>_YYYY-MM-DD_HHMMSS.md` (e.g., `My_Conversation_2026-01-18_153012.md`)
+   - Embed uploaded images as Base64 in the Markdown
+   - Download non-image files to an attachments/ subfolder
+9. Your exported file will be named: `<conversation_title>_YYYY-MM-DD_HHMMSS.md` (e.g., `My_Conversation_2026-01-18_153012.md`)
 
 **Supported formatting:**
 - ✅ Text formatting (bold, italics, inline code)
@@ -84,13 +77,12 @@ Support for other LLMs like DeepSeek, Claude, and Grok will be added in future u
 - ✅ Horizontal rules
 - ✅ Math formulas (LaTeX from `data-math` attributes)
 - ✅ Line breaks
+- ✅ Uploaded images (embedded as Base64)
+- ✅ Uploaded files (downloaded to attachments/)
 
 **Not supported:**
 - ❌ Canvas/drawing responses
-- ❌ Embedded images
-- ❌ File attachments
-
-**Note:** All content is extracted directly from the DOM using the Turndown library, ensuring accurate formatting preservation without clipboard dependencies.
+- ❌ Gemini-generated images (only uploaded images)
 
 ### ChatGPT
 1. Go to [ChatGPT](https://chatgpt.com/) and open any chat conversation.
@@ -109,16 +101,22 @@ Support for other LLMs like DeepSeek, Claude, and Grok will be added in future u
 
 **Note:** ChatGPT export uses clipboard-based extraction via the platform's native copy button to ensure perfect formatting preservation.
 
+## Support This Project
+
+This extension is free and open source. If you find it useful, please consider supporting ongoing development!
+
+### Donation Options
+- **[Donate via Stripe](https://buy.stripe.com/placeholder_stripe)** — Specify your donation amount
+- **[Donate via Airwallex](https://pay.airwallex.com/placeholder_airwallex)** — Specify your donation amount
+
+Your support helps keep this project alive and enables new features!
+
 ## Permissions
 
-This extension requires **storage** permission for extension settings and **clipboardRead** permission for ChatGPT exports. 
-
-**Important change in v4.0.0:** Gemini exports no longer require clipboard access! The extension now uses direct DOM-based extraction with the Turndown library to convert Gemini's HTML responses to Markdown. This provides:
-- ✅ More reliable extraction (no clipboard race conditions)
-- ✅ Better formatting preservation (direct HTML→Markdown conversion)
-- ✅ Enhanced privacy (no clipboard access needed for Gemini)
-
-ChatGPT still requires clipboard access as it uses the built-in copy button for reliable content extraction.
+This extension requires:
+- **storage**: For extension settings
+- **clipboardRead**: For ChatGPT exports (not needed for Gemini)
+- **downloads**: For saving attachment files to your computer
 
 ## Contributing
 
