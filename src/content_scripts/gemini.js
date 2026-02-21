@@ -922,6 +922,7 @@ ${code}\n\
     constructor(checkboxManager) {
       this.checkboxManager = checkboxManager;
       this.markdownConverter = new MarkdownConverter();
+      this.attachmentService = new AttachmentService();
     }
 
     _buildMarkdownHeader(conversationTitle) {
@@ -930,26 +931,49 @@ ${code}\n\
       return `# ${title}\n\n> ${CONFIG.EXPORT_TIMESTAMP_FORMAT} ${timestamp}\n\n---\n\n`;
     }
 
-    async buildMarkdown(turns, conversationTitle) {
+    async buildMarkdown(turns, conversationTitle, includeAttachments, exportFolder) {
       let markdown = this._buildMarkdownHeader(conversationTitle);
 
       for (let i = 0; i < turns.length; i++) {
         const turn = turns[i];
         DOMUtils.createNotification(`Processing message ${i + 1} of ${turns.length}...`);
 
-        // User message
         const userQueryElem = turn.querySelector(CONFIG.SELECTORS.USER_QUERY);
         if (userQueryElem) {
           const cb = userQueryElem.querySelector(`.${CONFIG.CHECKBOX_CLASS}`);
           if (cb?.checked) {
             const userQuery = this.markdownConverter.extractUserQuery(userQueryElem);
-            if (userQuery) {
-              markdown += `## 👤 You\n\n${userQuery}\n\n`;
+            
+            let attachmentMarkdown = '';
+            if (includeAttachments) {
+              const attachments = this.attachmentService.findUserAttachments(userQueryElem);
+              
+              for (const attachment of attachments) {
+                if (attachment.type === 'image') {
+                  const base64 = await this.attachmentService.imageToBase64(attachment.src);
+                  if (base64) {
+                    attachmentMarkdown += `\n![${attachment.name || 'image'}](${base64})\n`;
+                  }
+                } else if (attachment.type === 'file') {
+                  const safeName = this.attachmentService.sanitizeFilename(attachment.name || 'file');
+                  const savedPath = await this.attachmentService.downloadFile(
+                    attachment.src || '', 
+                    safeName, 
+                    exportFolder
+                  );
+                  if (savedPath) {
+                    attachmentMarkdown += `\n[Attachment: ${safeName}](${savedPath})\n`;
+                  }
+                }
+              }
+            }
+            
+            if (userQuery || attachmentMarkdown) {
+              markdown += `## 👤 You\n\n${userQuery}${attachmentMarkdown}\n\n`;
             }
           }
         }
 
-        // Model response (DOM-based extraction)
         const modelRespElem = turn.querySelector(CONFIG.SELECTORS.MODEL_RESPONSE);
         if (modelRespElem) {
           const cb = modelRespElem.querySelector(`.${CONFIG.CHECKBOX_CLASS}`);
@@ -984,16 +1008,18 @@ ${code}\n\
           return;
         }
 
-        // Get title and build markdown
+        const includeAttachmentsCheckbox = document.getElementById('gemini-include-attachments');
+        const includeAttachments = includeAttachmentsCheckbox?.checked ?? true;
+
         const conversationTitle = FilenameService.getConversationTitle();
-        const markdown = await this.buildMarkdown(turns, conversationTitle);
+        const exportFolder = FilenameService.generate(customFilename, conversationTitle);
+        const markdown = await this.buildMarkdown(turns, conversationTitle, includeAttachments, exportFolder);
 
         // Export based on mode
         if (exportMode === 'clipboard') {
           await FileExportService.exportToClipboard(markdown);
         } else {
-          const filename = FilenameService.generate(customFilename, conversationTitle);
-          FileExportService.downloadMarkdown(markdown, filename);
+          FileExportService.downloadMarkdown(markdown, exportFolder);
         }
 
       } catch (error) {
