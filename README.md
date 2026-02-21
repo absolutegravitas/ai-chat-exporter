@@ -1,12 +1,13 @@
 # AI Chat Exporter
 
-Export your Gemini and ChatGPT conversations to perfectly formatted Markdown files with complete preservation of LaTeX math, code blocks, tables, and all formatting. Version 4.0.2 adds attachment support—export uploaded images and files alongside your chats.
+Export your Gemini and ChatGPT conversations to perfectly formatted Markdown files with complete preservation of LaTeX math, code blocks, tables, and all formatting. Version 4.0.3 adds attachment support—export uploaded images and files alongside your chats in a single ZIP file.
 
 ## Features
 
-- **Attachment Support (v4.0.2+)**: Export uploaded images and files with your chat conversations
-- **Images as Base64**: Uploaded images are embedded directly in exported Markdown
-- **File Downloads**: Non-image files are saved to an attachments/ subfolder
+- **Attachment Support (v4.0.3+)**: Export uploaded images and files with your chat conversations
+- **ZIP Export**: Everything consolidated into a single ZIP file (markdown + attachments/ folder)
+- **Single-Click Export**: No dropdown/preference popup - just click and export immediately
+- **Multi-Chat Selection**: Sidebar checkboxes to select multiple chats for batch export
 - **DOM-based extraction for Gemini**: Direct HTML parsing without clipboard dependency using Turndown library
 - Export your full Gemini or ChatGPT chat conversation to Markdown, preserving formatting (code, tables, LaTeX, etc.)
 - Dedicated "Export Chat" button appears automatically on every Gemini and ChatGPT chat page
@@ -39,33 +40,32 @@ Export your Gemini and ChatGPT conversations to perfectly formatted Markdown fil
 
 Support for other LLMs like DeepSeek, Claude, and Grok will be added in future updates.
 
-## What's New in v4.0.2
+## What's New in v4.0.3
 
-### 🎉 Attachment Support
-- **Images as Base64**: Uploaded images are now embedded directly in exported Markdown
-- **File Downloads**: Non-image files are downloaded to an attachments/ subfolder
-- **Include Attachments Toggle**: New checkbox to include or exclude attachments in export
+### 🎉 Attachment Support & ZIP Export
+- **ZIP Export**: Everything packaged into a single ZIP file for easy download
+- **Attachments Folder**: Images and files saved to `attachments/` subfolder within the ZIP
+- **Single-Click Export**: Simplified flow - just click the button to export (no popup)
+- **Sidebar Checkboxes**: Select multiple chats from the sidebar for batch export
+- **Debug Logging**: Console logs to help troubleshoot attachment detection
 
 ## Usage
 
 ### Gemini
 1. Go to [Gemini](https://gemini.google.com/) and open any chat conversation.
-2. Click the **Export Chat** button at the top right of the page.
-3. In the export menu, use the **Select messages** dropdown to quickly select "All", "Only answers" (AI responses), or "None". You can also manually check/uncheck any message using the checkboxes on the right of each message. If you make a custom selection, the dropdown will show "Custom".
-4. Choose your export mode:
-   - **Export as file** (default): Downloads a Markdown (.md) file
-   - **Export to clipboard**: Copies the conversation to your clipboard for pasting elsewhere
-5. **(Optional)** Enter a custom filename, or leave blank to automatically use the conversation title or timestamp.
-6. **(Optional)** Check "Include attachments" to export uploaded images and files.
-7. Click **Export Chat** again to start. The button will show "Exporting..." during the process.
-8. The extension will:
-   - Automatically scroll to load all messages in the conversation (including lazy-loaded older messages)
+2. *(Optional)* Use sidebar checkboxes to select multiple chats for batch export.
+3. Click the **Export Chat** button at the top right of the page.
+4. The extension will automatically:
+   - Scroll to load all messages in the conversation (including lazy-loaded older messages)
    - Extract content directly from the DOM (no clipboard needed!)
    - Convert formatting, tables, code blocks, and math formulas to Markdown
    - Remove Gemini citation markers like `[cite_start]` and `[cite:1,2,3]`
-   - Embed uploaded images as Base64 in the Markdown
-   - Download non-image files to an attachments/ subfolder
-9. Your exported file will be named: `<conversation_title>_YYYY-MM-DD_HHMMSS.md` (e.g., `My_Conversation_2026-01-18_153012.md`)
+   - Fetch uploaded images and files as attachments
+   - Create a ZIP file with markdown + attachments folder
+5. Your exported file will be named: `<conversation_title>_YYYY-MM-DD_HHMMSS.zip`
+6. Extract the ZIP to find:
+   - `<conversation_title>.md` - The markdown export
+   - `attachments/` - Any uploaded images or files
 
 **Supported formatting:**
 - ✅ Text formatting (bold, italics, inline code)
@@ -77,8 +77,8 @@ Support for other LLMs like DeepSeek, Claude, and Grok will be added in future u
 - ✅ Horizontal rules
 - ✅ Math formulas (LaTeX from `data-math` attributes)
 - ✅ Line breaks
-- ✅ **Uploaded images** (embedded as Base64 in Markdown)
-- ✅ **Uploaded files** (PDF, DOC, XLS, etc. → downloaded to attachments/ subfolder)
+- ✅ **Uploaded images** (saved to attachments/ folder in ZIP)
+- ✅ **Uploaded files** (PDF, DOC, XLS, etc. → saved to attachments/ folder)
 
 **Not supported:**
 - ❌ Canvas/drawing responses

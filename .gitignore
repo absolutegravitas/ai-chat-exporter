@@ -1,4 +1,8 @@
+# Markdown files - only README.md and AGENTS.md are tracked
+# README.md was added before this gitignore rule
 *.md
+!AGENTS.md
+
 .DS_Store
 **/.DS_Store
 .idea/
