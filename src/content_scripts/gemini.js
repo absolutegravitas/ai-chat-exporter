@@ -150,12 +150,15 @@
     }
 
     async fetchAttachmentAsBlob(url) {
+      console.log('[AI Chat Exporter] Fetching attachment:', url.substring(0, 80));
       try {
         const response = await fetch(url);
-        if (!response.ok) throw new Error('Fetch failed');
-        return await response.blob();
+        if (!response.ok) throw new Error('Fetch failed: ' + response.status);
+        const blob = await response.blob();
+        console.log('[AI Chat Exporter] Fetched blob:', blob.size, blob.type);
+        return blob;
       } catch (error) {
-        console.warn('[AI Chat Exporter] Failed to fetch attachment:', url, error);
+        console.warn('[AI Chat Exporter] Fetch failed:', url, error.message);
         return null;
       }
     }
@@ -1091,12 +1094,16 @@ ${code}\n\
         const exportFolder = FilenameService.generate(customFilename, conversationTitle);
         const { markdown, attachments } = await this.buildMarkdown(turns, conversationTitle, includeAttachments);
 
+        console.log('[AI Chat Exporter] Export ready - attachments:', attachments.length);
+
         if (exportMode === 'clipboard') {
           await FileExportService.exportToClipboard(markdown);
         } else {
           if (attachments.length > 0) {
+            console.log('[AI Chat Exporter] Downloading ZIP with attachments...');
             await FileExportService.downloadZip(markdown, attachments, exportFolder);
           } else {
+            console.log('[AI Chat Exporter] No attachments found, downloading markdown only');
             FileExportService.downloadMarkdown(markdown, exportFolder);
           }
         }
