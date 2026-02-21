@@ -149,6 +149,17 @@
       this.baseUrl = window.location.origin;
     }
 
+    async fetchAttachmentAsBlob(url) {
+      try {
+        const response = await fetch(url);
+        if (!response.ok) throw new Error('Fetch failed');
+        return await response.blob();
+      } catch (error) {
+        console.warn('[AI Chat Exporter] Failed to fetch attachment:', url, error);
+        return null;
+      }
+    }
+
     findUserAttachments(userQueryElement) {
       if (!userQueryElement) return [];
       
@@ -164,7 +175,10 @@
         if (!img.src || img.src === '') return;
         
         const src = img.src;
-        const name = img.alt || `uploaded_image_${index + 1}.jpg`;
+        let name = img.alt || `uploaded_image_${index + 1}`;
+        if (!name.endsWith('.jpg') && !name.endsWith('.png') && !name.endsWith('.gif')) {
+          name = name + '.jpg';
+        }
         
         if (!seen.has(src)) {
           seen.add(src);
@@ -175,7 +189,7 @@
             index: index,
             element: img
           });
-          console.log('[AI Chat Exporter] Found uploaded image:', name, src.substring(0, 50));
+          console.log('[AI Chat Exporter] Found uploaded image:', name);
         }
       });
 
@@ -406,6 +420,48 @@
   // ============================================================================
   
   class FileExportService {
+    static async downloadZip(markdown, attachments, filenameBase) {
+      console.log('[AI Chat Exporter] Creating zip with', attachments.length, 'attachments');
+      
+      if (typeof JSZip === 'undefined') {
+        console.error('[AI Chat Exporter] JSZip not loaded!');
+        alert('JSZip library not loaded. Downloading markdown only.');
+        this.downloadMarkdown(markdown, filenameBase);
+        return;
+      }
+      
+      const zip = new JSZip();
+      
+      zip.file(`${filenameBase}.md`, markdown);
+      
+      const attachmentsFolder = zip.folder('attachments');
+      
+      for (const attachment of attachments) {
+        if (attachment.blob) {
+          attachmentsFolder.file(attachment.name, attachment.blob);
+          console.log('[AI Chat Exporter] Added to zip:', attachment.name);
+        }
+      }
+      
+      try {
+        const zipBlob = await zip.generateAsync({ type: 'blob' });
+        const url = URL.createObjectURL(zipBlob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${filenameBase}.zip`;
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(() => {
+          document.body.removeChild(a);
+          URL.revokeObjectURL(url);
+        }, CONFIG.TIMING.NOTIFICATION_CLEANUP_DELAY);
+        console.log('[AI Chat Exporter] Zip downloaded');
+      } catch (error) {
+        console.error('[AI Chat Exporter] Failed to create zip:', error);
+        this.downloadMarkdown(markdown, filenameBase);
+      }
+    }
+
     static downloadMarkdown(markdown, filenameBase) {
       const blob = new Blob([markdown], { type: 'text/markdown' });
       const url = URL.createObjectURL(blob);
@@ -964,8 +1020,9 @@ ${code}\n\
       return `# ${title}\n\n> ${CONFIG.EXPORT_TIMESTAMP_FORMAT} ${timestamp}\n\n---\n\n`;
     }
 
-    async buildMarkdown(turns, conversationTitle, includeAttachments, exportFolder) {
+    async buildMarkdown(turns, conversationTitle, includeAttachments) {
       let markdown = this._buildMarkdownHeader(conversationTitle);
+      const attachments = [];
 
       for (let i = 0; i < turns.length; i++) {
         const turn = turns[i];
@@ -979,30 +1036,16 @@ ${code}\n\
             
             let attachmentMarkdown = '';
             if (includeAttachments) {
-              const attachments = this.attachmentService.findUserAttachments(userQueryElem);
-              console.log('[AI Chat Exporter] Found attachments:', attachments.length);
+              const foundAttachments = this.attachmentService.findUserAttachments(userQueryElem);
+              console.log('[AI Chat Exporter] Found attachments:', foundAttachments.length);
               
-              for (const attachment of attachments) {
-                if (attachment.type === 'image') {
-                  const safeName = this.attachmentService.sanitizeFilename(attachment.name || 'image_' + Date.now() + '.jpg');
-                  const savedPath = await this.attachmentService.downloadImage(
-                    attachment.src,
-                    safeName,
-                    exportFolder
-                  );
-                  if (savedPath) {
-                    attachmentMarkdown += `\n![${safeName}](${savedPath})\n`;
-                  }
-                } else if (attachment.type === 'file') {
-                  const safeName = this.attachmentService.sanitizeFilename(attachment.name || 'file');
-                  const savedPath = await this.attachmentService.downloadFile(
-                    attachment.src || '', 
-                    safeName, 
-                    exportFolder
-                  );
-                  if (savedPath) {
-                    attachmentMarkdown += `\n[Attachment: ${safeName}](${savedPath})\n`;
-                  }
+              for (const attachment of foundAttachments) {
+                const safeName = this.attachmentService.sanitizeFilename(attachment.name || 'attachment');
+                
+                const blob = await this.attachmentService.fetchAttachmentAsBlob(attachment.src);
+                if (blob) {
+                  attachments.push({ name: safeName, blob: blob });
+                  attachmentMarkdown += `\n![${safeName}](attachments/${safeName})\n`;
                 }
               }
             }
@@ -1029,7 +1072,7 @@ ${code}\n\
         markdown += '---\n\n';
       }
 
-      return markdown;
+      return { markdown, attachments };
     }
 
     async execute(exportMode, customFilename, includeAttachments = true) {
@@ -1046,12 +1089,16 @@ ${code}\n\
 
         const conversationTitle = FilenameService.getConversationTitle();
         const exportFolder = FilenameService.generate(customFilename, conversationTitle);
-        const markdown = await this.buildMarkdown(turns, conversationTitle, includeAttachments, exportFolder);
+        const { markdown, attachments } = await this.buildMarkdown(turns, conversationTitle, includeAttachments);
 
         if (exportMode === 'clipboard') {
           await FileExportService.exportToClipboard(markdown);
         } else {
-          FileExportService.downloadMarkdown(markdown, exportFolder);
+          if (attachments.length > 0) {
+            await FileExportService.downloadZip(markdown, attachments, exportFolder);
+          } else {
+            FileExportService.downloadMarkdown(markdown, exportFolder);
+          }
         }
 
       } catch (error) {
