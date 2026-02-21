@@ -1234,8 +1234,10 @@ ${code}\n\
     }
 
     async loadSettings() {
+      console.log('[AI Chat Exporter] Loading settings...');
       const settings = await SettingsService.load();
       const defaults = SettingsService.getDefaults();
+      console.log('[AI Chat Exporter] Loaded settings:', settings, 'defaults:', defaults);
       
       const exportMode = settings[CONFIG.STORAGE_KEYS.EXPORT_MODE] || defaults[CONFIG.STORAGE_KEYS.EXPORT_MODE];
       const includeAttachments = settings[CONFIG.STORAGE_KEYS.INCLUDE_ATTACHMENTS] ?? defaults[CONFIG.STORAGE_KEYS.INCLUDE_ATTACHMENTS];
@@ -1285,6 +1287,8 @@ ${code}\n\
       const exportMode = this.dropdown.querySelector(`input[name="${CONFIG.EXPORT_MODE_NAME}"]:checked`)?.value || 'file';
       const includeAttachments = this.dropdown.querySelector('#gemini-include-attachments')?.checked ?? true;
       const messageSelection = this.dropdown.querySelector(`#${CONFIG.SELECT_DROPDOWN_ID}`)?.value || 'all';
+      
+      console.log('[AI Chat Exporter] Saving settings:', { exportMode, includeAttachments, messageSelection });
       
       await SettingsService.save({
         [CONFIG.STORAGE_KEYS.EXPORT_MODE]: exportMode,
