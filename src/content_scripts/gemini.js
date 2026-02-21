@@ -746,79 +746,14 @@
     }
 
     static createDropdownHTML() {
-      const isDark = DOMUtils.isDarkMode();
-      const inputStyles = this.getInputStyles(isDark);
-      
-      return `
-        <div id="gemini-progress-container" style="display:none;margin-bottom:12px;">
-          <div style="font-size:12px;margin-bottom:4px;" id="gemini-progress-text">Exporting...</div>
-          <div style="width:100%;height:8px;background:#eee;border-radius:4px;overflow:hidden;">
-            <div id="gemini-progress-bar" style="width:0%;height:100%;background:#1a73e8;transition:width 0.3s;"></div>
-          </div>
-        </div>
-        <div style="margin-top:10px;">
-          <label style="margin-right:10px;">
-            <input type="radio" name="${CONFIG.EXPORT_MODE_NAME}" value="file" checked>
-            Export as file
-          </label>
-          <label>
-            <input type="radio" name="${CONFIG.EXPORT_MODE_NAME}" value="clipboard">
-            Export to clipboard
-          </label>
-        </div>
-        <div id="gemini-filename-row" style="margin-top:10px;display:block;">
-          <label for="${CONFIG.FILENAME_INPUT_ID}" style="font-weight:bold;">
-            Filename <span style='color:#888;font-weight:normal;'>(optional)</span>:
-          </label>
-          <input id="${CONFIG.FILENAME_INPUT_ID}" type="text" 
-                 style="margin-left:8px;padding:2px 8px;width:260px;${inputStyles}" 
-                 value="">
-          <span style="display:block;font-size:0.95em;color:#888;margin-top:2px;">
-            Optional. Leave blank to use chat title or timestamp. 
-            Only <b>.md</b> (Markdown) files are supported. Do not include an extension.
-          </span>
-        </div>
-        <div style="margin-top:14px;">
-          <label style="font-weight:bold;">Select messages:</label>
-          <select id="${CONFIG.SELECT_DROPDOWN_ID}" 
-                  style="margin-left:8px;padding:2px 8px;${inputStyles}">
-            <option value="all">All</option>
-            <option value="ai">Only answers</option>
-            <option value="none">None</option>
-            <option value="custom">Custom</option>
-          </select>
-        </div>
-        <div style="margin-top:14px;border-top:1px solid #ccc;padding-top:10px;">
-          <label style="font-weight:bold;">
-            <input type="checkbox" id="gemini-include-attachments" checked>
-            Include attachments
-          </label>
-          <div style="margin-left:24px;margin-top:6px;font-size:0.9em;color:#666;">
-            <span style="display:block;">Images: Embedded as Base64 in Markdown</span>
-            <span style="display:block;">Other files: Downloaded to attachments/ subfolder</span>
-          </div>
-        </div>
-        <div style="margin-top:14px;border-top:1px solid #ccc;padding-top:10px;">
-          <label style="font-weight:bold;">
-            <input type="checkbox" id="gemini-multi-chat">
-            Export multiple chats
-          </label>
-          <div id="gemini-chat-list" style="display:none;max-height:150px;overflow-y:auto;margin-top:8px;border:1px solid #ddd;border-radius:4px;padding:4px;">
-            <div style="font-size:11px;color:#888;padding:4px;">
-              <a href="#" id="gemini-load-chats" style="color:#1a73e8;">Click to load your chat list</a>
-            </div>
-          </div>
-        </div>
-        <div style="margin-top:10px;font-size:11px;color:#888;text-align:center;">
-          Settings are saved automatically for next time
-        </div>
-      `;
+      return '';
     }
 
     static createButton() {
       const btn = document.createElement('button');
       btn.id = CONFIG.BUTTON_ID;
       btn.textContent = 'Export Chat';
+      btn.title = 'Click to export this chat. Select multiple chats from sidebar to export all.';
       
       Object.assign(btn.style, {
         position: 'fixed',
@@ -844,26 +779,34 @@
     }
 
     static createDropdown() {
-      const dropdown = document.createElement('div');
-      dropdown.id = CONFIG.DROPDOWN_ID;
+      return null;
+    }
+
+    static injectSidebarCheckboxes() {
+      if (document.getElementById('gemini-sidebar-checkbox-injected')) return;
       
-      const isDark = DOMUtils.isDarkMode();
-      Object.assign(dropdown.style, {
-        position: 'fixed',
-        top: '124px',
-        right: '20px',
-        zIndex: '9999',
-        border: '1px solid #ccc',
-        borderRadius: '6px',
-        padding: '10px',
-        boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
-        display: 'none',
-        background: isDark ? '#222' : '#fff',
-        color: isDark ? '#fff' : '#222'
+      const sidebar = document.querySelector('nav, [class*="sidebar"], [class*="chat-list"]') || document.body;
+      const chatLinks = sidebar.querySelectorAll('a[href*="/chat/"]');
+      
+      if (chatLinks.length === 0) return;
+      
+      chatLinks.forEach((link, index) => {
+        if (link.querySelector('input[type="checkbox"]')) return;
+        
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.value = link.href;
+        checkbox.title = 'Select to export this chat';
+        checkbox.style.marginRight = '8px';
+        checkbox.style.cursor = 'pointer';
+        
+        link.insertBefore(checkbox, link.firstChild);
       });
       
-      dropdown.innerHTML = this.createDropdownHTML();
-      return dropdown;
+      const marker = document.createElement('div');
+      marker.id = 'gemini-sidebar-checkbox-injected';
+      marker.style.display = 'none';
+      document.body.appendChild(marker);
     }
   }
 
@@ -1258,135 +1201,56 @@ ${code}\n\
       this.updateFilenameRowVisibility();
     }
 
-    updateFilenameRowVisibility() {
-      const fileRow = this.dropdown.querySelector('#gemini-filename-row');
-      const fileRadio = this.dropdown.querySelector(`input[name="${CONFIG.EXPORT_MODE_NAME}"][value="file"]`);
-      if (fileRow && fileRadio) {
-        fileRow.style.display = fileRadio.checked ? 'block' : 'none';
-      }
-    }
+    updateFilenameRowVisibility() {}
 
     showProgress(percent, text) {
-      const container = this.dropdown.querySelector('#gemini-progress-container');
-      const bar = this.dropdown.querySelector('#gemini-progress-bar');
-      const progressText = this.dropdown.querySelector('#gemini-progress-text');
-      if (container && bar && progressText) {
-        container.style.display = 'block';
-        bar.style.width = percent + '%';
-        progressText.textContent = text;
-      }
+      this.button.textContent = text || 'Exporting...';
     }
 
-    hideProgress() {
-      const container = this.dropdown.querySelector('#gemini-progress-container');
-      if (container) {
-        container.style.display = 'none';
-      }
-    }
+    hideProgress() {}
 
-    async saveSettings() {
-      const exportMode = this.dropdown.querySelector(`input[name="${CONFIG.EXPORT_MODE_NAME}"]:checked`)?.value || 'file';
-      const includeAttachments = this.dropdown.querySelector('#gemini-include-attachments')?.checked ?? true;
-      const messageSelection = this.dropdown.querySelector(`#${CONFIG.SELECT_DROPDOWN_ID}`)?.value || 'all';
-      
-      console.log('[AI Chat Exporter] Saving settings:', { exportMode, includeAttachments, messageSelection });
-      
-      await SettingsService.save({
-        [CONFIG.STORAGE_KEYS.EXPORT_MODE]: exportMode,
-        [CONFIG.STORAGE_KEYS.INCLUDE_ATTACHMENTS]: includeAttachments,
-        [CONFIG.STORAGE_KEYS.MESSAGE_SELECTION]: messageSelection
-      });
-    }
+    async saveSettings() {}
 
     async handleButtonClick() {
-      this.checkboxManager.injectCheckboxes();
+      console.log('[AI Chat Exporter] Export button clicked');
       
-      const isDropdownHidden = this.dropdown.style.display === 'none';
+      UIBuilder.injectSidebarCheckboxes();
       
-      if (isDropdownHidden) {
-        await this.loadSettings();
-      }
+      const selectedChats = this.getSelectedChatsFromSidebar();
+      const currentUrl = window.location.href;
       
-      const exportMode = this.dropdown.querySelector(`input[name="${CONFIG.EXPORT_MODE_NAME}"]:checked`)?.value || 'file';
-      const customFilename = exportMode === 'file' 
-        ? this.dropdown.querySelector(`#${CONFIG.FILENAME_INPUT_ID}`)?.value.trim() || ''
-        : '';
-      const includeAttachments = this.dropdown.querySelector('#gemini-include-attachments')?.checked ?? true;
-      const multiChat = this.dropdown.querySelector('#gemini-multi-chat')?.checked ?? false;
+      console.log('[AI Chat Exporter] Selected chats from sidebar:', selectedChats.length);
       
-      if (isDropdownHidden && !multiChat) {
-        this.dropdown.style.display = '';
-        this.updateFilenameRowVisibility();
-        
-        this.dropdown.dataset.autoExport = 'true';
-        this.button.textContent = 'Click to Export';
-        setTimeout(() => {
-          if (this.dropdown.dataset.autoExport === 'true') {
-            this.dropdown.style.display = 'none';
-            this.dropdown.dataset.autoExport = '';
-            this.button.textContent = 'Exporting...';
-            this.performExport(exportMode, customFilename, includeAttachments, multiChat);
-          }
-        }, 500);
-        return;
-      }
-      
-      this.dropdown.style.display = 'none';
-      await this.performExport(exportMode, customFilename, includeAttachments, multiChat);
-    }
-
-    async performExport(exportMode, customFilename, includeAttachments, multiChat) {
       this.button.disabled = true;
       this.button.textContent = 'Exporting...';
       
       try {
-        await this.saveSettings();
-        
-        if (multiChat) {
-          this.showProgress(0, 'Loading chats...');
-          await this.exportMultiChat(exportMode, includeAttachments);
+        if (selectedChats.length > 0) {
+          let exported = 0;
+          for (const chatUrl of selectedChats) {
+            this.button.textContent = `Exporting ${exported + 1}/${selectedChats.length}...`;
+            await this.exportService.executeForChat(chatUrl, 'file', true);
+            exported++;
+          }
+          this.button.textContent = `Exported ${exported} chats!`;
         } else {
-          this.showProgress(30, 'Exporting chat...');
-          await this.exportService.execute(exportMode, customFilename, includeAttachments);
-          this.showProgress(100, 'Done!');
+          await this.exportService.execute('file', '', true);
+          this.button.textContent = 'Exported!';
         }
       } catch (error) {
-        console.error('Export error:', error);
+        console.error('[AI Chat Exporter] Export error:', error);
         alert('Export failed: ' + error.message);
       } finally {
-        setTimeout(() => this.hideProgress(), 2000);
-        this.button.disabled = false;
-        this.button.textContent = 'Export Chat';
-        this.checkboxManager.removeAll();
-        this.selectionManager.reset();
+        setTimeout(() => {
+          this.button.disabled = false;
+          this.button.textContent = 'Export Chat';
+        }, 2000);
       }
     }
 
-    async exportMultiChat(exportMode, includeAttachments) {
-      const chatList = this.dropdown.querySelector('#gemini-chat-list');
-      const checkboxes = chatList?.querySelectorAll('input[type="checkbox"]:checked') || [];
-      const chatLinks = Array.from(checkboxes).map(cb => cb.value);
-      
-      if (chatLinks.length === 0) {
-        alert('Please select at least one chat to export');
-        this.hideProgress();
-        this.button.disabled = false;
-        return;
-      }
-
-      let exported = 0;
-      for (const chatUrl of chatLinks) {
-        this.showProgress(Math.round((exported / chatLinks.length) * 100), `Exporting ${exported + 1}/${chatLinks.length}...`);
-        
-        try {
-          await this.exportService.executeForChat(chatUrl, exportMode, includeAttachments);
-        } catch (e) {
-          console.warn('Failed to export chat:', chatUrl, e);
-        }
-        exported++;
-      }
-      
-      this.showProgress(100, `Exported ${exported} chats!`);
+    getSelectedChatsFromSidebar() {
+      const checkboxes = document.querySelectorAll('input[type="checkbox"][value*="/chat/"]:checked');
+      return Array.from(checkboxes).map(cb => cb.value);
     }
 
     observeStorageChanges() {
