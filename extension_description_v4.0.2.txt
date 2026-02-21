@@ -1,0 +1,78 @@
+Exports Gemini or ChatGPT chat conversations to Markdown files or clipboard.
+
+┌──────────────────────────────────┐
+  🚀 𝗔𝗜 𝗖𝗵𝗮𝘁 𝗘𝘅𝗽𝗼𝗿𝘁𝗲𝗿 🚀
+└──────────────────────────────────┘
+
+The only exporter that perfectly preserves 𝗟𝗮𝗧𝗲𝗫 mathematical formulas in your AI chat exports! Other extensions mess with LaTeX; this one gets it right—even in dark mode.
+
+Save and share your technical and scientific conversations from Gemini and ChatGPT as flawless Markdown files or copy them directly to your clipboard.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🎉 𝗡𝗘𝗪 𝗜𝗡 𝗩𝗘𝗥𝗦𝗜𝗢𝗡 𝟰.𝟬.𝟮 🎉
+
+✅ 𝗔𝘁𝘁𝗮𝗰𝗵𝗺𝗲𝗻𝘁 𝗦𝘂𝗽𝗽𝗼𝗿𝘁: Export uploaded files alongside your chat messages.
+✅ 𝗜𝗺𝗮𝗴𝗲𝘀 𝗮𝘀 𝗕𝗮𝘀𝗲𝟲𝟰: Uploaded images are embedded directly in the Markdown as Base64.
+✅ 𝗙𝗶𝗹𝗲 𝗗𝗼𝘄𝗻𝗹𝗼𝗮𝗱: Non-image files are downloaded to an attachments/ subfolder.
+✅ 𝗜𝗻𝗰𝗹𝘂𝗱𝗲/𝗘𝘅𝗰𝗹𝘂𝗱𝗲: New checkbox to include or exclude attachments in export.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🎉 𝗡𝗘𝗪 𝗜𝗡 𝗩𝗘𝗥𝗦𝗜𝗢𝗡 𝟰.𝟬.𝟬 🎉
+
+✅ 𝗗𝗢𝗠-𝗕𝗮𝘀𝗲𝗱 𝗘𝘅𝘁𝗿𝗮𝗰𝘁𝗶𝗼𝗻: Direct HTML parsing without clipboard dependency using Turndown library.
+✅ 𝗠𝗮𝘁𝗵 𝗙𝗼𝗿𝗺𝘂𝗹𝗮 𝗦𝘂𝗽𝗽𝗼𝗿𝘁: Extracts LaTeX equations from Gemini's data-math attributes.
+✅ 𝗕𝗲𝘁𝘁𝗲𝗿 𝗣𝗿𝗶𝘃𝗮𝗰𝘆: No clipboard access required for Gemini exports.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+⚙️ 𝗛𝗢𝗪 𝗧𝗢 𝗨𝗦𝗘
+
+➡️ 𝗘𝘅𝗽𝗼𝗿𝘁𝗶𝗻𝗴 𝗮 𝗙𝘂𝗹𝗹 𝗼𝗿 𝗣𝗮𝗿𝘁𝗶𝗮𝗹 𝗖𝗵𝗮𝘁
+✅ Go to Gemini (gemini.google.com) or ChatGPT (chatgpt.com) and open any chat.
+✅ Click the 𝗘𝘅𝗽𝗼𝗿𝘁 𝗖𝗵𝗮𝘁 button at the top right of the page.
+✅ Use the checkboxes or dropdown to select which messages to export.
+✅ Choose to export as a Markdown file or copy to clipboard.
+✅ Check "Include attachments" to export uploaded images and files.
+
+➡️ 𝗛𝗶𝗱𝗶𝗻𝗴 𝘁𝗵𝗲 𝗘𝘅𝗽𝗼𝗿𝘁 𝗕𝘂𝘁𝘁𝗼𝗻
+✅ Click the extension icon in your Chrome toolbar.
+✅ In the popup, check the box to 𝗛𝗶𝗱𝗲 𝗲𝘅𝗽𝗼𝗿𝘁 𝗯𝘂𝘁𝘁𝗼𝗻.
+✅ The button will instantly disappear. Uncheck the box to bring it back!
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📋 𝗣𝗘𝗥𝗠𝗜𝗦𝗦𝗜𝗢𝗡𝗦
+✅ This extension requires clipboard access for ChatGPT exports.
+✅ New: downloads permission for saving attachment files.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🤔 𝗧𝗥𝗢𝗨𝗕𝗟𝗘𝗦𝗛𝗢𝗢𝗧𝗜𝗡𝗚
+✅ If the button doesn't appear, ensure you are on a Gemini or ChatGPT chat page and reload.
+✅ Click the extension icon and make sure "Hide export button" is unchecked.
+✅ Make sure the extension is enabled in chrome://extensions.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+💬 𝗦𝗨𝗣𝗣𝗢𝗥𝗧 & 𝗙𝗘𝗘𝗗𝗕𝗔𝗖𝗸
+This project is 100% open source! Check the source code, report bugs, or contribute on GitHub.
+➡️ https://github.com/absolutegravitas/ai-chat-exporter
+
+For questions, please use the support link in the Chrome Web Store listing.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+💖 𝗦𝗨𝗣𝗣𝗢𝗥𝗧 𝗧𝗛𝗘 𝗣𝗥𝗢𝗝𝗘𝗖𝗧
+If you find this extension helpful, please consider supporting its development. Your support is greatly appreciated!
+➡️ Donate Here: https://ko-fi.com/amazingpaddy
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📜 𝗟𝗜𝗖𝗘𝗡𝗦𝗘 & 𝗔𝗧𝗧𝗥𝗜𝗕𝗨𝗧𝗜𝗢𝗡
+• Licensed under the Apache License 2.0.
+• Extension icons are generated using Gemini AI.
+
+═══════════ • ✨ • ═══════════
+Enjoy exporting your AI chat conversations!
