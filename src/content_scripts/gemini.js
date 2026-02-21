@@ -22,7 +22,12 @@
       USER_QUERY_TEXT: '.query-text .query-text-line',
       MODEL_RESPONSE: 'model-response',
       MODEL_RESPONSE_CONTENT: 'message-content .markdown',
-      CONVERSATION_TITLE: '.conversation-title'
+      CONVERSATION_TITLE: '.conversation-title',
+      
+      // Attachment selectors
+      ATTACHMENT_IMAGE: 'img[src*="upload"], img[src*="file"], img.uploaded-image',
+      ATTACHMENT_FILE_CHIP: '[data-file-name], .file-chip, .uploaded-file',
+      ATTACHMENT_CONTAINER: '.attachment, .uploaded-media, [data-test-id="attachment"]'
     },
     
     TIMING: {
@@ -82,6 +87,149 @@
         .replace(/\[cite:[\d,\s]+\]/g, '')
         .replace(/\n{3,}/g, '\n\n')
         .trim();
+    }
+  }
+
+  class AttachmentService {
+    constructor() {
+      this.attachments = [];
+      this.baseUrl = window.location.origin;
+    }
+
+    findUserAttachments(userQueryElement) {
+      if (!userQueryElement) return [];
+      
+      const attachments = [];
+      
+      const images = userQueryElement.querySelectorAll(CONFIG.SELECTORS.ATTACHMENT_IMAGE);
+      images.forEach((img, index) => {
+        const src = img.src.startsWith('data:') ? img.src : 
+          (img.src.startsWith('http') ? img.src : this.baseUrl + img.src);
+        attachments.push({
+          type: 'image',
+          src: src,
+          index: index,
+          element: img
+        });
+      });
+
+      const fileChips = userQueryElement.querySelectorAll(CONFIG.SELECTORS.ATTACHMENT_FILE_CHIP);
+      fileChips.forEach((chip, index) => {
+        const fileName = chip.getAttribute('data-file-name') || 
+                         chip.textContent?.trim() || 
+                         chip.getAttribute('aria-label') ||
+                         `uploaded_file_${index + 1}`;
+        attachments.push({
+          type: 'file',
+          name: fileName,
+          index: index,
+          element: chip
+        });
+      });
+
+      const attachmentContainers = userQueryElement.querySelectorAll(CONFIG.SELECTORS.ATTACHMENT_CONTAINER);
+      attachmentContainers.forEach((container, index) => {
+        const img = container.querySelector('img');
+        const fileName = container.getAttribute('data-filename') || 
+                         container.getAttribute('data-file-name') ||
+                         `attachment_${index + 1}`;
+        
+        if (img) {
+          attachments.push({
+            type: 'image',
+            src: img.src,
+            index: index,
+            element: container
+          });
+        } else {
+          attachments.push({
+            type: 'file',
+            name: fileName,
+            index: index,
+            element: container
+          });
+        }
+      });
+
+      return attachments;
+    }
+
+    async imageToBase64(url) {
+      try {
+        if (url.startsWith('data:')) {
+          return url;
+        }
+        
+        const response = await fetch(url);
+        const blob = await response.blob();
+        
+        return new Promise((resolve) => {
+          const reader = new FileReader();
+          reader.onloadend = () => resolve(reader.result);
+          reader.readAsDataURL(blob);
+        });
+      } catch (error) {
+        console.warn('Failed to convert image to Base64:', url, error);
+        return null;
+      }
+    }
+
+    async downloadFile(url, filename, exportFolder) {
+      try {
+        const attachmentFilename = `${exportFolder}/attachments/${filename}`;
+        
+        if (url.startsWith('data:')) {
+          const response = await fetch(url);
+          const blob = await response.blob();
+          const blobUrl = URL.createObjectURL(blob);
+          
+          return new Promise((resolve) => {
+            chrome.downloads.download({
+              url: blobUrl,
+              filename: attachmentFilename,
+              saveAs: false
+            }, (downloadId) => {
+              if (chrome.runtime.lastError) {
+                console.warn('Download failed:', chrome.runtime.lastError);
+                resolve(null);
+              } else {
+                resolve(attachmentFilename);
+              }
+            });
+          });
+        } else {
+          return new Promise((resolve) => {
+            chrome.downloads.download({
+              url: url,
+              filename: attachmentFilename,
+              saveAs: false
+            }, (downloadId) => {
+              if (chrome.runtime.lastError) {
+                console.warn('Download failed:', chrome.runtime.lastError);
+                resolve(null);
+              } else {
+                resolve(attachmentFilename);
+              }
+            });
+          });
+        }
+      } catch (error) {
+        console.warn('Failed to download file:', filename, error);
+        return null;
+      }
+    }
+
+    getFileExtension(filename) {
+      const parts = filename.split('.');
+      return parts.length > 1 ? parts.pop().toLowerCase() : '';
+    }
+
+    isImageExtension(ext) {
+      return ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'bmp', 'tiff', 'tif'].includes(ext);
+    }
+
+    sanitizeFilename(name) {
+      return name.replace(/[^a-zA-Z0-9._-]/g, '_');
     }
   }
 
