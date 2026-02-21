@@ -77,12 +77,12 @@ Support for other LLMs like DeepSeek, Claude, and Grok will be added in future u
 - ✅ Horizontal rules
 - ✅ Math formulas (LaTeX from `data-math` attributes)
 - ✅ Line breaks
-- ✅ Uploaded images (embedded as Base64)
-- ✅ Uploaded files (downloaded to attachments/)
+- ✅ **Uploaded images** (embedded as Base64 in Markdown)
+- ✅ **Uploaded files** (PDF, DOC, XLS, etc. → downloaded to attachments/ subfolder)
 
 **Not supported:**
 - ❌ Canvas/drawing responses
-- ❌ Gemini-generated images (only uploaded images)
+- ❌ Gemini-generated images (only user-uploaded images are supported)
 
 ### ChatGPT
 1. Go to [ChatGPT](https://chatgpt.com/) and open any chat conversation.
