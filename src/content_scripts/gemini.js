@@ -1134,6 +1134,7 @@ ${code}\n\
       this.createUI();
       this.attachEventListeners();
       this.observeStorageChanges();
+      UIBuilder.injectSidebarCheckboxes();
     }
 
     createUI() {
